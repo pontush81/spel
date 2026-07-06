@@ -770,8 +770,50 @@
       ["Bad boy, bad boy, whatcha gonna do", "Visst har vi glömt", "Granit och morän"],
       ["Här är kullen med alla kondomer", "Visst har vi glömt", "Granit och morän"]
     ];
-  const SONG_ALBUMS = ["Alla", "Lars och mina damer och herrar", "3486 ord från Lars Winnerbäck", "Dans med svåra steg", "Rusningstrafik", "Med solen i ögonen", "Kom", "Singel", "Söndermarken", "Vatten under broarna", "Daugava", "Själ och hjärta", "Tänk om jag ångrar mig och sen ångrar mig igen", "Neutronstjärnan", "Hosianna", "Eldtuppen", "Granit och morän", "Stort liv", "Annat smått och gott", "Övrigt"];
-  const SONG_BIG_ALBUMS = new Set(["Lars och mina damer och herrar", "3486 ord från Lars Winnerbäck", "Dans med svåra steg", "Rusningstrafik", "Med solen i ögonen", "Kom", "Singel", "Söndermarken", "Vatten under broarna", "Daugava", "Själ och hjärta", "Tänk om jag ångrar mig och sen ångrar mig igen", "Neutronstjärnan", "Hosianna", "Eldtuppen", "Granit och morän", "Stort liv", "Annat smått och gott"]);
+  const SONG_ALBUMS = [
+      "Serverar en skål med nyvispad våldspop på singel",
+      "3486 ord från Lars Winnerbäck",
+      "Du och jag och en liten kille jag känner",
+      "Lars och mina damer och herrar",
+      "Dans med svåra steg",
+      "Rusningstrafik",
+      "Risajkling",
+      "Tvivel",
+      "Med solen i ögonen",
+      "Solen i ögonen",
+      "Kom ihåg mig",
+      "Kom",
+      "Söndag 13.3.99",
+      "Jag vill gå hem med dig",
+      "Singel",
+      "Live / För dig",
+      "Åt samma håll",
+      "Söndermarken",
+      "Dunkla rum/Över gränsen",
+      "Live i Linköping",
+      "Elegi",
+      "Vatten under broarna",
+      "Stort liv",
+      "Bränt krut vol. 2",
+      "Efter nattens bränder",
+      "Om du lämnade mig nu",
+      "Daugava",
+      "Strimmor",
+      "Jag får liksom ingen ordning",
+      "Tänk om jag ångrar mig och sen ångrar mig igen",
+      "Från kylan in i värmen",
+      "Hosianna",
+      "Köpt en bil",
+      "Granit och morän",
+      "Vi var där",
+      "Eldtuppen",
+      "Själ och hjärta",
+      "Släpp det där mörkret",
+      "Nåt som verkligen är bra",
+      "Är det nåt jag ska ta med",
+      "Neutronstjärnan",
+      "Annat smått och gott"
+    ];
 
   const flagEmoji = (code) =>
     code.toUpperCase().replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)));
@@ -806,7 +848,7 @@
       ansSub: (it) => it[2] ? `Album: <b>${it[2]}</b>` : "",
       base: QUOTES,
       multiSelect: true,
-      albums: SONG_ALBUMS.filter((a) => a !== "Alla"),
+      albums: SONG_ALBUMS,
       footer: () => 'Textrader hämtade från everhill.se/winnerback — välj album ovan.'
     }
   };
@@ -814,7 +856,6 @@
   let M = null;
   let activeRegion = "Alla";
   let selectedAlbums = new Set();
-  const albumBucket = (q) => SONG_BIG_ALBUMS.has(q[2]) ? q[2] : "Övrigt";
   let current = null, revealed = false, answered = false, roundOver = false;
   let deck = [], roundSize = 0;
   let stats = { right: 0, wrong: 0 };
@@ -839,7 +880,7 @@
 
   function startRound() {
     const pool = M.multiSelect
-      ? M.base.filter((q) => selectedAlbums.has(albumBucket(q)))
+      ? M.base.filter((q) => selectedAlbums.has(q[2]))
       : M.filter(activeRegion);
     if (M.multiSelect && pool.length === 0) {
       roundOver = true; current = null; deck = []; roundSize = 0;
@@ -927,7 +968,7 @@
     const albums = M.albums;
     const allOn = albums.every((a) => selectedAlbums.has(a));
     const nSongs = new Set(
-      M.base.filter((q) => selectedAlbums.has(albumBucket(q))).map((q) => q[1])
+      M.base.filter((q) => selectedAlbums.has(q[2])).map((q) => q[1])
     ).size;
 
     const tools = document.createElement("div");
@@ -1006,7 +1047,7 @@
   });
 
   $("flagCount").textContent = `${COUNTRIES.length} länder · välj världsdel`;
-  $("songCount").textContent = `${new Set(QUOTES.map((q) => q[1])).size} låtar · ${SONG_ALBUMS.length - 2} album`;
+  $("songCount").textContent = `${new Set(QUOTES.map((q) => q[1])).size} låtar · ${SONG_ALBUMS.length} album`;
 </script>
 </body>
 </html>
