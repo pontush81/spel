@@ -646,7 +646,7 @@
       ["Du säger väl till om jag ska gå", "Järnvägsspår", "Tänk om jag ångrar mig och sen ångrar mig igen"],
       ["eller följ mig till dom gråa, höga husen", "Järnvägsspår", "Tänk om jag ångrar mig och sen ångrar mig igen"],
       ["God jul, fru Hjärter Dam och Fröken Svår", "Julgröten", "Dans med svåra steg"],
-      ["Gott Nytt År till all er sorj och era sår", "Julgröten", "Dans med svåra steg"],
+      ["Gott Nytt År till all er sorg och era sår", "Julgröten", "Dans med svåra steg"],
       ["Jag är fast i stan, jag blev ett asfaltsbarn", "Kallt regn som faller", "Själ och hjärta"],
       ["Den är ful och grå och jag är likadan", "Kallt regn som faller", "Själ och hjärta"],
       ["En till innan dom stänger", "Katt over taken dublin", "Åt samma håll"],
@@ -1001,17 +1001,23 @@
     if (isChoice()) {
       $("faceBtn").style.pointerEvents = "none";
       renderChoices();
-      $("hint").textContent = difficulty === "latt" ? albumHint(current) : "";
     } else {
       $("faceBtn").style.pointerEvents = "";
       $("choices").classList.add("hidden");
-      $("hint").textContent = (M.mode === "song" && difficulty === "latt") ? albumHint(current) : M.hint;
     }
+    $("hint").textContent = currentHintText();
     render();
   }
 
   function albumHint(it) {
     return it[2] ? `Ledtråd: albumet ${it[2]}` : "Ledtråd saknas";
+  }
+
+  // Vilken text ledtrådsraden ska visa för aktuellt kort
+  function currentHintText() {
+    if (!current) return "";
+    if (isChoice()) return difficulty === "latt" ? albumHint(current) : "";
+    return (M.mode === "song" && difficulty === "latt") ? albumHint(current) : M.hint;
   }
 
   function renderChoices() {
@@ -1045,13 +1051,13 @@
       if (b.textContent === current[1]) b.classList.add("correct");
       else if (b === btn) b.classList.add("wrong");
     });
-    // visa album under
+    // visa album under och låt spelaren gå vidare själv
     $("ansTitle").textContent = current[1];
     $("ansSub").innerHTML = current[2] ? `Album: <b>${current[2]}</b>` : "";
     $("answer").classList.add("show");
+    $("hint").textContent = correct ? "Rätt! Tryck för nästa citat" : "Fel – tryck för nästa citat";
+    $("faceBtn").style.pointerEvents = "";   // kortet blir klickbart för att gå vidare
     registerResult(correct);
-    advancing = true;
-    setTimeout(nextCard, correct ? 850 : 1500);
   }
 
   function reveal() {
@@ -1065,8 +1071,14 @@
   }
 
   function registerResult(correct) {
-    if (correct) { stats.right++; streak++; if (streak > roundBestStreak) roundBestStreak = streak; }
-    else { stats.wrong++; streak = 0; }
+    if (correct) {
+      stats.right++; streak++;
+      if (streak > roundBestStreak) roundBestStreak = streak;
+      // spara rekordet löpande (annars når man aldrig slutet på 370 kort)
+      if (roundBestStreak > LS.num("wq_beststreak")) LS.set("wq_beststreak", roundBestStreak);
+    } else {
+      stats.wrong++; streak = 0;
+    }
     updateStreakBar();
     render();
   }
@@ -1241,9 +1253,8 @@
     box.appendChild(seg("Svårighet", [["latt", "Lätt"], ["svar", "Svår"]], difficulty, (v) => {
       if (v === difficulty) return;
       difficulty = v; LS.set("wq_diff", v); renderSongControls();
-      if (!roundOver && isChoice() && !answered) {
-        $("hint").textContent = difficulty === "latt" ? albumHint(current) : "";
-      }
+      // uppdatera ledtråden direkt på aktuellt kort (om inte besvarat/slut)
+      if (!roundOver && !answered) $("hint").textContent = currentHintText();
     }));
   }
 
@@ -1275,7 +1286,8 @@
   $("btnBack").addEventListener("click", backToMenu);
   $("faceBtn").addEventListener("click", () => {
     if (roundOver) { startRound(); return; }
-    if (advancing || isChoice()) return;  // i flervalsläge sker svaret via knapparna
+    if (advancing) return;
+    if (isChoice()) { if (answered) nextCard(); return; }  // flerval: svara via knappar, gå vidare via kort
     if (revealed) nextCard(); else reveal();
   });
   $("btnNext").addEventListener("click", () => {
@@ -1291,10 +1303,14 @@
     if ($("game").classList.contains("hidden")) return;
     if (roundOver) { if (e.key === " ") { e.preventDefault(); startRound(); } return; }
     if (isChoice()) {
+      if (answered) {
+        if (e.key === " " || e.key === "Enter") { e.preventDefault(); nextCard(); }
+        return;
+      }
       const n = parseInt(e.key, 10);
       if (n >= 1 && n <= 4) {
         const btns = $("choices").querySelectorAll(".choice");
-        if (btns[n - 1] && !answered) btns[n - 1].click();
+        if (btns[n - 1]) btns[n - 1].click();
       }
       return;
     }
@@ -1306,9 +1322,9 @@
 
   function updateMenuCounts() {
     const songs = new Set(QUOTES.map((q) => q[1])).size;
-    const best = LS.num("wq_best");
+    const rek = LS.num("wq_beststreak");
     $("flagCount").textContent = `${COUNTRIES.length} länder · välj världsdel`;
-    $("songCount").textContent = `${songs} låtar · ${SONG_ALBUMS.length} album` + (best > 0 ? ` · rekord ${best}` : "");
+    $("songCount").textContent = `${songs} låtar · ${SONG_ALBUMS.length} album` + (rek > 0 ? ` · längsta svit ${rek}` : "");
   }
   updateMenuCounts();
 </script>
