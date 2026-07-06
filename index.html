@@ -148,20 +148,24 @@
     border-radius: 999px; cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
   .album-tools .count { font-size: .8rem; color: var(--ink-soft); white-space: nowrap; }
-  .album-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-  .acheck {
-    flex: 1 1 140px; display: flex; align-items: center; gap: 10px;
-    min-height: 46px; padding: 9px 13px; border: 1px solid var(--line);
-    border-radius: 12px; background: var(--card); cursor: pointer;
-    font-size: .86rem; font-weight: 600; color: var(--ink-soft);
-    -webkit-tap-highlight-color: transparent; user-select: none;
-    transition: border-color .15s, color .15s;
+  .album-grid {
+    display: flex; flex-direction: column;
+    border: 1px solid var(--line); border-radius: 14px;
+    background: var(--card); overflow: hidden; box-shadow: var(--shadow);
   }
-  .acheck.on { border-color: var(--accent); color: var(--ink); }
+  .acheck {
+    display: flex; align-items: center; gap: 12px;
+    min-height: 46px; padding: 11px 15px; cursor: pointer;
+    font-size: .92rem; font-weight: 500; color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  .acheck:last-child { border-bottom: none; }
   .acheck input {
-    width: 21px; height: 21px; margin: 0; flex: 0 0 auto;
+    width: 20px; height: 20px; margin: 0; flex: 0 0 auto;
     accent-color: var(--accent); cursor: pointer;
   }
+  .acheck .yr { color: var(--ink-soft); font-weight: 400; }
 
   /* Lägen & svårighet (segmenterade knappar) */
   .song-controls { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 2px; }
@@ -874,6 +878,7 @@
       "Neutronstjärnan",
       "Annat smått och gott"
     ];
+  const SONG_ALBUM_YEAR = { "3486 ord från Lars Winnerbäck": 1994, "Bränt krut vol. 2": 2005, "Dans med svåra steg": 1996, "Daugava": 2007, "Du och jag och en liten kille jag känner": 1994, "Dunkla rum/Över gränsen": 2003, "Efter nattens bränder": 2006, "Eldtuppen": 2019, "Elegi": 2004, "Från kylan in i värmen": 2010, "Granit och morän": 2016, "Hosianna": 2013, "Jag får liksom ingen ordning": 2009, "Jag vill gå hem med dig": 2001, "Kom": 1999, "Kom ihåg mig": 1999, "Köpt en bil": 2015, "Lars och mina damer och herrar": 1994, "Live / För dig": 2001, "Live i Linköping": 2004, "Med solen i ögonen": 1998, "Neutronstjärnan": 2023, "Nåt som verkligen är bra": 2023, "Om du lämnade mig nu": 2007, "Risajkling": 1998, "Rusningstrafik": 1997, "Serverar en skål med nyvispad våldspop på singel": 1993, "Singel": 2001, "Själ och hjärta": 2021, "Släpp det där mörkret": 2022, "Solen i ögonen": 1999, "Stort liv": 2005, "Strimmor": 2008, "Söndag 13.3.99": 1999, "Söndermarken": 2003, "Tvivel": 1998, "Tänk om jag ångrar mig och sen ångrar mig igen": 2009, "Vatten under broarna": 2004, "Vi var där": 2017, "Är det nåt jag ska ta med": 2023, "Åt samma håll": 2003 };
 
   const flagEmoji = (code) =>
     code.toUpperCase().replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)));
@@ -1198,6 +1203,13 @@
       };
       const span = document.createElement("span");
       span.textContent = a;
+      const year = SONG_ALBUM_YEAR[a];
+      if (year) {
+        const yr = document.createElement("span");
+        yr.className = "yr";
+        yr.textContent = ` (${year})`;
+        span.appendChild(yr);
+      }
       lab.appendChild(cb); lab.appendChild(span);
       grid.appendChild(lab);
     });
