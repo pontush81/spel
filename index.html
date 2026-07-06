@@ -129,6 +129,15 @@
 
   /* Album-väljare (flerval, mobilvänlig) */
   .album-picker { margin: 10px 0 4px; }
+  .album-toggle {
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 12px 16px; min-height: 48px;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+    color: var(--ink); font: inherit; font-weight: 600; font-size: .9rem;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; box-shadow: var(--shadow);
+  }
+  .album-toggle .chev { color: var(--accent-strong); font-size: .8rem; }
+  .album-picker .album-tools { margin-top: 10px; }
   .album-tools {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 9px;
@@ -152,6 +161,53 @@
   .acheck input {
     width: 21px; height: 21px; margin: 0; flex: 0 0 auto;
     accent-color: var(--accent); cursor: pointer;
+  }
+
+  /* Lägen & svårighet (segmenterade knappar) */
+  .song-controls { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 2px; }
+  .ctl { display: flex; flex-direction: column; gap: 5px; }
+  .ctl > span {
+    font-size: .66rem; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 600; padding-left: 2px;
+  }
+  .seg {
+    display: flex; border: 1px solid var(--line); border-radius: 999px;
+    overflow: hidden; background: var(--card);
+  }
+  .seg button {
+    border: none; background: transparent; color: var(--ink-soft);
+    font: inherit; font-weight: 600; font-size: .84rem; padding: 9px 16px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; min-height: 42px;
+    transition: background .15s, color .15s;
+  }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); }
+
+  /* Streak-rad */
+  .streakbar {
+    display: flex; justify-content: center; gap: 14px; margin: 12px 2px 2px;
+    font-size: .82rem; color: var(--ink-soft); font-weight: 600;
+  }
+  .streakbar b { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+
+  /* Flerval-knappar */
+  .choices { display: grid; grid-template-columns: 1fr; gap: 9px; margin-top: 18px; }
+  .choice {
+    text-align: left; font: inherit; font-weight: 600; font-size: 1rem;
+    padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--card); color: var(--ink); cursor: pointer; min-height: 54px;
+    -webkit-tap-highlight-color: transparent; transition: border-color .15s, background .15s, opacity .15s;
+  }
+  .choice:active { transform: scale(.99); }
+  .choice.correct { background: var(--good); color: #06210f; border-color: var(--good); }
+  .choice.wrong { background: var(--bad); color: #fff; border-color: var(--bad); }
+  .choices.answered .choice:not(.correct):not(.wrong) { opacity: .5; }
+
+  /* Dela-knapp */
+  .share-btn {
+    margin-top: 16px; width: 100%; font: inherit; font-weight: 700; font-size: .95rem;
+    padding: 13px 16px; border-radius: 14px; border: 1px solid var(--accent);
+    background: transparent; color: var(--accent-strong); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .scoreboard {
@@ -294,6 +350,8 @@
     </div>
 
     <nav class="regions hidden" id="regions" aria-label="Välj region"></nav>
+    <div class="song-controls hidden" id="songControls"></div>
+    <div class="streakbar hidden" id="streakBar"></div>
 
     <div class="scoreboard">
       <div class="stat right"><b id="statRight">0</b><span>Rätt</span></div>
@@ -306,6 +364,7 @@
       <button class="face-btn" id="faceBtn" aria-label="Visa svaret">
         <div id="face"></div>
       </button>
+      <div class="choices hidden" id="choices"></div>
       <p class="hint" id="hint"></p>
       <div class="answer" id="answer">
         <p class="ans-title" id="ansTitle"></p>
@@ -315,6 +374,7 @@
         <button class="action btn-good" id="btnRight">✓ Jag kunde</button>
         <button class="action btn-bad" id="btnWrong">✗ Missade</button>
       </div>
+      <button class="share-btn hidden" id="btnShare">📋 Dela resultat</button>
     </div>
 
     <div class="footer-controls">
@@ -856,9 +916,24 @@
   let M = null;
   let activeRegion = "Alla";
   let selectedAlbums = new Set();
+  let albumsOpen = false;   // album-panelen hopfälld som default
   let current = null, revealed = false, answered = false, roundOver = false;
   let deck = [], roundSize = 0;
   let stats = { right: 0, wrong: 0 };
+
+  // Inställningar + rekord (sparas i webbläsaren via localStorage)
+  const LS = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    num(k) { const n = parseInt(this.get(k, "0"), 10); return isNaN(n) ? 0 : n; },
+  };
+  let songMode = LS.get("wq_mode", "choice");   // "choice" | "self"
+  let difficulty = LS.get("wq_diff", "latt");   // "latt" | "svar"
+  let streak = 0, roundBestStreak = 0;
+  let advancing = false;                          // spärr mot dubbel-hopp vid auto-advance
+  let poolTitles = [];                            // titlar i aktuell pool (för distraktorer)
+  const ALL_TITLES = [...new Set(QUOTES.map((q) => q[1]))];
+  const isChoice = () => M && M.mode === "song" && songMode === "choice";
 
   function shuffle(arr) {
     const a = arr.slice();
@@ -884,33 +959,94 @@
       : M.filter(activeRegion);
     if (M.multiSelect && pool.length === 0) {
       roundOver = true; current = null; deck = []; roundSize = 0;
-      stats = { right: 0, wrong: 0 };
+      stats = { right: 0, wrong: 0 }; streak = 0; roundBestStreak = 0;
+      $("choices").classList.add("hidden");
+      $("btnShare").classList.add("hidden");
+      $("faceBtn").style.pointerEvents = "";
       $("face").innerHTML = `<div class="face-flag">🎵</div>`;
       $("card").classList.add("done"); $("card").classList.remove("revealed");
       $("ansTitle").textContent = "Inga album valda";
       $("ansSub").innerHTML = "Kryssa i minst ett album för att spela.";
       $("answer").classList.add("show"); $("verdict").classList.remove("show");
+      updateStreakBar();
       render();
       return;
     }
     deck = shuffle(pool);
     roundSize = deck.length;
     stats = { right: 0, wrong: 0 };
+    streak = 0; roundBestStreak = 0;
+    poolTitles = M.mode === "song" ? [...new Set(pool.map((q) => q[1]))] : [];
     roundOver = false;
+    updateStreakBar();
     nextCard();
   }
 
   function nextCard() {
+    advancing = false;
     if (deck.length === 0) { showRoundOver(); return; }
     current = deck.pop();
     revealed = false; answered = false; roundOver = false;
     $("face").innerHTML = M.faceHTML(current);
-    $("hint").textContent = M.hint;
     $("btnNext").textContent = M.nextLabel;
     $("card").classList.remove("revealed", "done");
     $("answer").classList.remove("show");
     $("verdict").classList.remove("show");
+    $("btnShare").classList.add("hidden");
+    if (isChoice()) {
+      $("faceBtn").style.pointerEvents = "none";
+      renderChoices();
+      $("hint").textContent = difficulty === "latt" ? albumHint(current) : "";
+    } else {
+      $("faceBtn").style.pointerEvents = "";
+      $("choices").classList.add("hidden");
+      $("hint").textContent = (M.mode === "song" && difficulty === "latt") ? albumHint(current) : M.hint;
+    }
     render();
+  }
+
+  function albumHint(it) {
+    return it[2] ? `Ledtråd: albumet ${it[2]}` : "Ledtråd saknas";
+  }
+
+  function renderChoices() {
+    const box = $("choices");
+    box.className = "choices";           // synlig, ej answered
+    box.innerHTML = "";
+    const correct = current[1];
+    let others = shuffle(poolTitles.filter((t) => t !== correct)).slice(0, 3);
+    if (others.length < 3) {                       // fyll på från alla låtar om poolen är liten
+      const extra = shuffle(ALL_TITLES.filter((t) => t !== correct && !others.includes(t)));
+      others = others.concat(extra.slice(0, 3 - others.length));
+    }
+    const opts = shuffle([correct, ...others]);
+    opts.forEach((t) => {
+      const b = document.createElement("button");
+      b.className = "choice";
+      b.textContent = t;
+      b.onclick = () => answerChoice(t, b);
+      box.appendChild(b);
+    });
+  }
+
+  function answerChoice(title, btn) {
+    if (answered || roundOver) return;
+    answered = true;
+    const correct = title === current[1];
+    const box = $("choices");
+    box.classList.add("answered");
+    [...box.children].forEach((b) => {
+      b.disabled = true;
+      if (b.textContent === current[1]) b.classList.add("correct");
+      else if (b === btn) b.classList.add("wrong");
+    });
+    // visa album under
+    $("ansTitle").textContent = current[1];
+    $("ansSub").innerHTML = current[2] ? `Album: <b>${current[2]}</b>` : "";
+    $("answer").classList.add("show");
+    registerResult(correct);
+    advancing = true;
+    setTimeout(nextCard, correct ? 850 : 1500);
   }
 
   function reveal() {
@@ -923,26 +1059,75 @@
     $("verdict").classList.add("show");
   }
 
+  function registerResult(correct) {
+    if (correct) { stats.right++; streak++; if (streak > roundBestStreak) roundBestStreak = streak; }
+    else { stats.wrong++; streak = 0; }
+    updateStreakBar();
+    render();
+  }
+
+  function updateStreakBar() {
+    const bar = $("streakBar");
+    if (!M || M.mode !== "song") { bar.classList.add("hidden"); return; }
+    bar.classList.remove("hidden");
+    const best = LS.num("wq_beststreak");
+    bar.innerHTML = `🔥 Svit <b>${streak}</b> · Rekord <b>${Math.max(best, roundBestStreak)}</b>`;
+  }
+
   function score(correct) {
     if (!revealed || answered || roundOver) return;
     answered = true;
-    correct ? stats.right++ : stats.wrong++;
-    render();
+    registerResult(correct);
+    advancing = true;
     setTimeout(nextCard, 260);
   }
 
   function showRoundOver() {
     roundOver = true; current = null;
     const answeredCount = stats.right + stats.wrong;
+    $("choices").classList.add("hidden");
+    $("faceBtn").style.pointerEvents = "";
     $("face").innerHTML = `<div class="face-flag">${M.mode === "flag" ? "🎉" : "🎵"}</div>`;
     $("card").classList.add("done");
     $("card").classList.remove("revealed");
     $("ansTitle").textContent = "Omgången klar!";
-    $("ansSub").innerHTML = `Du fick <b>${stats.right}</b> rätt av <b>${answeredCount}</b>`;
+    let sub = `Du fick <b>${stats.right}</b> rätt av <b>${answeredCount}</b>`;
+
+    if (M.mode === "song" && answeredCount > 0) {
+      const prevBest = LS.num("wq_best"), prevStreak = LS.num("wq_beststreak");
+      const isRecord = stats.right > prevBest;
+      if (stats.right > prevBest) LS.set("wq_best", stats.right);
+      if (roundBestStreak > prevStreak) LS.set("wq_beststreak", roundBestStreak);
+      sub += `<br>Längsta svit: <b>${roundBestStreak}</b>`;
+      sub += isRecord ? `<br>🏆 Nytt rekord!` : `<br>Rekord: <b>${Math.max(prevBest, stats.right)}</b> rätt`;
+      $("btnShare").classList.remove("hidden");
+    } else {
+      $("btnShare").classList.add("hidden");
+    }
+    $("ansSub").innerHTML = sub;
     $("answer").classList.add("show");
     $("verdict").classList.remove("show");
     $("btnNext").textContent = "Spela igen →";
+    updateStreakBar();
     render();
+  }
+
+  function shareResult() {
+    const answered = stats.right + stats.wrong;
+    const lag = songMode === "choice" ? "Flerval" : "Självrätta";
+    const svar = difficulty === "latt" ? "Lätt" : "Svår";
+    const albums = M.albums.filter((a) => selectedAlbums.has(a));
+    const albumRad = albums.length === M.albums.length
+      ? "Alla album" : `${albums.length} album`;
+    const text =
+      `🎵 Gissa Winnerbäck-låten\n` +
+      `${stats.right}/${answered} rätt · längsta svit ${roundBestStreak}\n` +
+      `${lag}, ${svar} · ${albumRad}\n` +
+      `pontush81.github.io/spel`;
+    const done = () => { $("btnShare").textContent = "✓ Kopierat!"; setTimeout(() => { $("btnShare").textContent = "📋 Dela resultat"; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(done);
+    } else { done(); }
   }
 
   function renderRegions() {
@@ -967,9 +1152,21 @@
     nav.innerHTML = "";
     const albums = M.albums;
     const allOn = albums.every((a) => selectedAlbums.has(a));
+    const nSel = albums.filter((a) => selectedAlbums.has(a)).length;
     const nSongs = new Set(
       M.base.filter((q) => selectedAlbums.has(q[2])).map((q) => q[1])
     ).size;
+
+    // Hopfällbar rad — visar sammanfattning, öppnar panelen vid tryck
+    const head = document.createElement("button");
+    head.className = "album-toggle";
+    const label = allOn ? "Alla album" : `${nSel} av ${albums.length} album`;
+    head.innerHTML = `<span>🎚️ ${label} · ${nSongs} låtar</span>`
+      + `<span class="chev">${albumsOpen ? "▲" : "▼"}</span>`;
+    head.onclick = () => { albumsOpen = !albumsOpen; renderRegions(); };
+    nav.appendChild(head);
+
+    if (!albumsOpen) return;   // hopfälld: visa bara raden
 
     const tools = document.createElement("div");
     tools.className = "album-tools";
@@ -1007,14 +1204,47 @@
     nav.appendChild(grid);
   }
 
+  function renderSongControls() {
+    const box = $("songControls");
+    if (!M || M.mode !== "song") { box.classList.add("hidden"); return; }
+    box.classList.remove("hidden");
+    box.innerHTML = "";
+    const seg = (label, options, value, onPick) => {
+      const ctl = document.createElement("div"); ctl.className = "ctl";
+      const lab = document.createElement("span"); lab.textContent = label; ctl.appendChild(lab);
+      const s = document.createElement("div"); s.className = "seg";
+      options.forEach(([val, txt]) => {
+        const b = document.createElement("button");
+        b.className = val === value ? "on" : "";
+        b.textContent = txt;
+        b.onclick = () => onPick(val);
+        s.appendChild(b);
+      });
+      ctl.appendChild(s); return ctl;
+    };
+    box.appendChild(seg("Läge", [["choice", "Flerval"], ["self", "Självrätta"]], songMode, (v) => {
+      if (v === songMode) return;
+      songMode = v; LS.set("wq_mode", v); renderSongControls(); startRound();
+    }));
+    box.appendChild(seg("Svårighet", [["latt", "Lätt"], ["svar", "Svår"]], difficulty, (v) => {
+      if (v === difficulty) return;
+      difficulty = v; LS.set("wq_diff", v); renderSongControls();
+      if (!roundOver && isChoice() && !answered) {
+        $("hint").textContent = difficulty === "latt" ? albumHint(current) : "";
+      }
+    }));
+  }
+
   function openGame(key) {
     M = MODES[key];
     activeRegion = "Alla";
+    albumsOpen = false;
     if (M.multiSelect) selectedAlbums = new Set(M.albums);
     root.setAttribute("data-mode", key === "song" ? "song" : "flag");
     $("gameTitle").textContent = M.title;
     $("gameFooter").innerHTML = M.footer();
     renderRegions();
+    renderSongControls();
     $("menu").classList.add("hidden");
     $("game").classList.remove("hidden");
     startRound();
@@ -1024,6 +1254,7 @@
     root.removeAttribute("data-mode");
     $("game").classList.add("hidden");
     $("menu").classList.remove("hidden");
+    updateMenuCounts();
   }
 
   /* ---- Kopplingar ---- */
@@ -1031,23 +1262,43 @@
     btn.addEventListener("click", () => openGame(btn.dataset.game)));
   $("btnBack").addEventListener("click", backToMenu);
   $("faceBtn").addEventListener("click", () => {
-    if (roundOver) startRound();
-    else if (revealed) nextCard();
-    else reveal();
+    if (roundOver) { startRound(); return; }
+    if (advancing || isChoice()) return;  // i flervalsläge sker svaret via knapparna
+    if (revealed) nextCard(); else reveal();
   });
-  $("btnNext").addEventListener("click", () => { roundOver ? startRound() : nextCard(); });
+  $("btnNext").addEventListener("click", () => {
+    if (roundOver) { startRound(); return; }
+    if (advancing) return;
+    nextCard();
+  });
   $("btnRight").addEventListener("click", () => score(true));
   $("btnWrong").addEventListener("click", () => score(false));
   $("btnReset").addEventListener("click", startRound);
+  $("btnShare").addEventListener("click", shareResult);
   document.addEventListener("keydown", (e) => {
     if ($("game").classList.contains("hidden")) return;
-    if (e.key === " ") { e.preventDefault(); roundOver ? startRound() : (revealed ? nextCard() : reveal()); }
+    if (roundOver) { if (e.key === " ") { e.preventDefault(); startRound(); } return; }
+    if (isChoice()) {
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 4) {
+        const btns = $("choices").querySelectorAll(".choice");
+        if (btns[n - 1] && !answered) btns[n - 1].click();
+      }
+      return;
+    }
+    if (advancing) return;
+    if (e.key === " ") { e.preventDefault(); revealed ? nextCard() : reveal(); }
     else if (e.key.toLowerCase() === "r") score(true);
     else if (e.key.toLowerCase() === "f") score(false);
   });
 
-  $("flagCount").textContent = `${COUNTRIES.length} länder · välj världsdel`;
-  $("songCount").textContent = `${new Set(QUOTES.map((q) => q[1])).size} låtar · ${SONG_ALBUMS.length} album`;
+  function updateMenuCounts() {
+    const songs = new Set(QUOTES.map((q) => q[1])).size;
+    const best = LS.num("wq_best");
+    $("flagCount").textContent = `${COUNTRIES.length} länder · välj världsdel`;
+    $("songCount").textContent = `${songs} låtar · ${SONG_ALBUMS.length} album` + (best > 0 ? ` · rekord ${best}` : "");
+  }
+  updateMenuCounts();
 </script>
 </body>
 </html>
