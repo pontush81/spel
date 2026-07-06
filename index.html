@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Spelhörnan</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #faf6ec; --bg-2: #f1e9d6; --card: #fffdf7; --ink: #22303a;
+    --ink-soft: #5f6f79; --line: #e4d9bf; --accent: #c98a1e; --accent-strong: #a9711a;
+    --accent-ink: #1a1206; --good: #2f8f5b; --bad: #c0492f;
+    --shadow: 0 18px 40px -18px rgba(40,30,10,.35);
+    --face-shadow: 0 10px 26px -10px rgba(40,30,10,.4);
+  }
+  :root[data-mode="song"] {
+    --bg: #f6f1e7; --bg-2: #ece2d0; --card: #fffcf5; --ink: #2a211c;
+    --ink-soft: #6e6156; --line: #ddcfb8; --accent: #9c3b2e; --accent-strong: #7f2f24;
+    --accent-ink: #fff; --good: #4a7c4e; --bad: #b0472f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1e28; --bg-2: #13252f; --card: #172b36; --ink: #f2ede1;
+      --ink-soft: #9fb0ba; --line: #26404d; --accent: #e8b04b; --accent-strong: #f2c163;
+      --accent-ink: #1a1206; --good: #4bbd7e; --bad: #ef7a5f;
+      --shadow: 0 20px 44px -20px rgba(0,0,0,.6);
+      --face-shadow: 0 14px 30px -10px rgba(0,0,0,.55);
+    }
+    :root[data-mode="song"] {
+      --bg: #1a1512; --bg-2: #221a16; --card: #26201b; --ink: #f3ebdd;
+      --ink-soft: #b3a493; --line: #3a2f27; --accent: #d76a53; --accent-strong: #e58269;
+      --accent-ink: #fff; --good: #6fbf74; --bad: #e8836b;
+    }
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  :root[data-theme="light"]:not([data-mode="song"]) {
+    --bg: #faf6ec; --bg-2: #f1e9d6; --card: #fffdf7; --ink: #22303a;
+    --ink-soft: #5f6f79; --line: #e4d9bf; --accent: #c98a1e; --accent-strong: #a9711a;
+    --accent-ink: #1a1206; --good: #2f8f5b; --bad: #c0492f;
+    --shadow: 0 18px 40px -18px rgba(40,30,10,.35);
+    --face-shadow: 0 10px 26px -10px rgba(40,30,10,.4);
+  }
+  :root[data-theme="light"][data-mode="song"] {
+    --bg: #f6f1e7; --bg-2: #ece2d0; --card: #fffcf5; --ink: #2a211c;
+    --ink-soft: #6e6156; --line: #ddcfb8; --accent: #9c3b2e; --accent-strong: #7f2f24;
+    --accent-ink: #fff; --good: #4a7c4e; --bad: #b0472f;
+  }
+  :root[data-theme="dark"]:not([data-mode="song"]) {
+    --bg: #0f1e28; --bg-2: #13252f; --card: #172b36; --ink: #f2ede1;
+    --ink-soft: #9fb0ba; --line: #26404d; --accent: #e8b04b; --accent-strong: #f2c163;
+    --accent-ink: #1a1206; --good: #4bbd7e; --bad: #ef7a5f;
+    --shadow: 0 20px 44px -20px rgba(0,0,0,.6);
+    --face-shadow: 0 14px 30px -10px rgba(0,0,0,.55);
+  }
+  :root[data-theme="dark"][data-mode="song"] {
+    --bg: #1a1512; --bg-2: #221a16; --card: #26201b; --ink: #f3ebdd;
+    --ink-soft: #b3a493; --line: #3a2f27; --accent: #d76a53; --accent-strong: #e58269;
+    --accent-ink: #fff; --good: #6fbf74; --bad: #e8836b;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Avenir Next", "Avenir", system-ui, -apple-system, sans-serif;
+    background: radial-gradient(120% 80% at 50% -20%, var(--bg-2), var(--bg)) fixed;
+    color: var(--ink); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; display: flex; justify-content: center;
+    transition: background .4s ease;
+  }
+  .app {
+    width: 100%; max-width: 480px;
+    padding: 28px 20px calc(40px + env(safe-area-inset-bottom));
+    padding-top: calc(24px + env(safe-area-inset-top));
+    display: flex; flex-direction: column;
+  }
+  .hidden { display: none !important; }
+
+  header { text-align: center; margin-bottom: 20px; }
+  .eyebrow {
+    font-size: .72rem; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent-strong); font-weight: 600; margin-bottom: 6px;
+  }
+  h1 {
+    font-family: "Charter", "Georgia", serif; font-weight: 700; font-size: 2rem;
+    margin: 0; letter-spacing: -.01em; text-wrap: balance;
+  }
+
+  /* ---- Meny ---- */
+  .menu { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+  .menu-card {
+    display: flex; align-items: center; gap: 16px; text-align: left;
+    background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+    padding: 20px; cursor: pointer; box-shadow: var(--shadow);
+    transition: transform .12s ease; font: inherit; color: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .menu-card:active { transform: scale(.98); }
+  .menu-card .icon { font-size: 2.6rem; line-height: 1; }
+  .menu-card .mc-title {
+    font-family: "Charter", "Georgia", serif; font-size: 1.35rem; font-weight: 700;
+  }
+  .menu-card .mc-sub { color: var(--ink-soft); font-size: .9rem; margin-top: 2px; }
+  .menu-hint { text-align: center; color: var(--ink-soft); font-size: .8rem; margin-top: 18px; }
+
+  /* ---- Spel ---- */
+  .topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .back {
+    background: transparent; border: 1px solid var(--line); color: var(--ink-soft);
+    border-radius: 10px; padding: 8px 12px; font: inherit; font-weight: 600;
+    font-size: .82rem; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .game-title { font-family: "Charter", "Georgia", serif; font-weight: 700; font-size: 1.2rem; }
+
+  .regions {
+    display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    padding: 4px 2px 6px; margin: 8px -2px 0; -webkit-overflow-scrolling: touch;
+  }
+  .regions::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; border: 1px solid var(--line); background: transparent;
+    color: var(--ink-soft); font: inherit; font-size: .84rem; font-weight: 600;
+    padding: 8px 15px; border-radius: 999px; cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  .scoreboard {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 12px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 10px 8px; text-align: center; box-shadow: var(--shadow);
+  }
+  .stat b {
+    display: block; font-family: "Charter", "Georgia", serif; font-size: 1.5rem;
+    line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .stat.right b { color: var(--good); }
+  .stat.wrong b { color: var(--bad); }
+  .stat span {
+    display: block; margin-top: 4px; font-size: .68rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-soft);
+  }
+  .progress {
+    height: 6px; background: var(--line); border-radius: 999px;
+    overflow: hidden; margin: 0 2px 18px;
+  }
+  .progress-fill {
+    height: 100%; width: 0; background: var(--accent);
+    border-radius: 999px; transition: width .35s ease;
+  }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 24px;
+    box-shadow: var(--shadow); padding: 28px 22px 24px; text-align: center;
+  }
+  .face-btn {
+    display: block; width: 100%; border: none; background: none;
+    cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent;
+  }
+  .face-flag {
+    font-size: clamp(6rem, 34vw, 9rem); line-height: 1.1;
+    filter: drop-shadow(var(--face-shadow));
+    transition: transform .35s cubic-bezier(.2,.8,.2,1); user-select: none;
+  }
+  .face-quote {
+    position: relative; font-family: "Charter", "Georgia", serif; font-style: italic;
+    font-size: clamp(1.3rem, 5.4vw, 1.65rem); line-height: 1.4; color: var(--ink);
+    padding: 8px 4px 4px; text-wrap: balance; min-height: 3em;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .3s cubic-bezier(.2,.8,.2,1);
+  }
+  .face-quote::before {
+    content: "\201D"; position: absolute; top: -.35em; left: -.05em;
+    font-size: 3.2em; line-height: 1; color: var(--accent); opacity: .2;
+    font-family: "Georgia", serif;
+  }
+  .face-btn:active .face-flag, .face-btn:active .face-quote { transform: scale(.96); }
+
+  .hint {
+    margin-top: 12px; font-size: .85rem; color: var(--ink-soft);
+    letter-spacing: .02em; transition: opacity .2s;
+  }
+  .revealed .hint, .done .hint { opacity: 0; height: 0; margin-top: 0; overflow: hidden; }
+
+  .answer {
+    max-height: 0; opacity: 0; overflow: hidden;
+    transition: max-height .4s ease, opacity .35s ease, margin .3s ease;
+  }
+  .answer.show { max-height: 220px; opacity: 1; margin-top: 8px; }
+  .ans-title {
+    font-family: "Charter", "Georgia", serif; font-size: 1.65rem; font-weight: 700;
+    margin: 0; text-wrap: balance; line-height: 1.15;
+  }
+  .ans-sub { margin: 6px 0 0; font-size: .95rem; color: var(--ink-soft); }
+  .ans-sub b { color: var(--ink); font-weight: 600; }
+
+  .verdict {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px;
+    max-height: 0; opacity: 0; overflow: hidden;
+    transition: max-height .35s ease, opacity .3s ease, margin .3s ease;
+  }
+  .verdict.show { max-height: 80px; opacity: 1; }
+
+  button.action {
+    font: inherit; font-weight: 700; border: 1px solid transparent; border-radius: 14px;
+    padding: 14px 16px; cursor: pointer; transition: transform .08s, filter .15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button.action:active { transform: scale(.97); }
+  .btn-good { background: var(--good); color: #06210f; }
+  .btn-bad  { background: var(--bad); color: #fff; }
+
+  .footer-controls {
+    display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-top: 16px;
+  }
+  .btn-next { background: var(--accent); color: var(--accent-ink); font-size: 1.02rem; }
+  .btn-ghost { background: transparent; border-color: var(--line); color: var(--ink-soft); }
+
+  footer {
+    text-align: center; margin-top: 22px; font-size: .74rem;
+    color: var(--ink-soft); line-height: 1.6;
+  }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .72rem;
+    background: var(--card); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line);
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== MENY ===== -->
+  <section id="menu">
+    <header>
+      <div class="eyebrow">Spelhörnan</div>
+      <h1>Välj ett spel</h1>
+    </header>
+    <div class="menu">
+      <button class="menu-card" data-game="flag">
+        <span class="icon">🌍</span>
+        <span>
+          <span class="mc-title">Flaggspel</span>
+          <span class="mc-sub" id="flagCount"></span>
+        </span>
+      </button>
+      <button class="menu-card" data-game="song">
+        <span class="icon">🎵</span>
+        <span>
+          <span class="mc-title">Gissa Winnerbäck-låten</span>
+          <span class="mc-sub" id="songCount"></span>
+        </span>
+      </button>
+    </div>
+    <p class="menu-hint">Tryck på en flagga/citat för att se svaret. Varje omgång visar allt en gång.</p>
+  </section>
+
+  <!-- ===== SPEL ===== -->
+  <section id="game" class="hidden">
+    <div class="topbar">
+      <button class="back" id="btnBack">← Meny</button>
+      <span class="game-title" id="gameTitle"></span>
+    </div>
+
+    <nav class="regions hidden" id="regions" aria-label="Välj region"></nav>
+
+    <div class="scoreboard">
+      <div class="stat right"><b id="statRight">0</b><span>Rätt</span></div>
+      <div class="stat wrong"><b id="statWrong">0</b><span>Fel</span></div>
+      <div class="stat"><b id="statRemain">0</b><span>Kvar</span></div>
+    </div>
+    <div class="progress"><div class="progress-fill" id="progFill"></div></div>
+
+    <div class="card" id="card">
+      <button class="face-btn" id="faceBtn" aria-label="Visa svaret">
+        <div id="face"></div>
+      </button>
+      <p class="hint" id="hint"></p>
+      <div class="answer" id="answer">
+        <p class="ans-title" id="ansTitle"></p>
+        <p class="ans-sub" id="ansSub"></p>
+      </div>
+      <div class="verdict" id="verdict">
+        <button class="action btn-good" id="btnRight">✓ Jag kunde</button>
+        <button class="action btn-bad" id="btnWrong">✗ Missade</button>
+      </div>
+    </div>
+
+    <div class="footer-controls">
+      <button class="action btn-next" id="btnNext">Nästa →</button>
+      <button class="action btn-ghost" id="btnReset">Börja om</button>
+    </div>
+
+    <footer id="gameFooter"></footer>
+  </section>
+</div>
+
+<script>
+  /* ================= DATA ================= */
+
+  // Flaggor: [ISO alpha-2, land, huvudstad, region]
+  const COUNTRIES = [
+    ["se","Sverige","Stockholm","Europa"],["no","Norge","Oslo","Europa"],
+    ["dk","Danmark","Köpenhamn","Europa"],["fi","Finland","Helsingfors","Europa"],
+    ["is","Island","Reykjavik","Europa"],["gb","Storbritannien","London","Europa"],
+    ["ie","Irland","Dublin","Europa"],["fr","Frankrike","Paris","Europa"],
+    ["de","Tyskland","Berlin","Europa"],["nl","Nederländerna","Amsterdam","Europa"],
+    ["be","Belgien","Bryssel","Europa"],["lu","Luxemburg","Luxemburg","Europa"],
+    ["es","Spanien","Madrid","Europa"],["pt","Portugal","Lissabon","Europa"],
+    ["it","Italien","Rom","Europa"],["ch","Schweiz","Bern","Europa"],
+    ["at","Österrike","Wien","Europa"],["pl","Polen","Warszawa","Europa"],
+    ["cz","Tjeckien","Prag","Europa"],["sk","Slovakien","Bratislava","Europa"],
+    ["hu","Ungern","Budapest","Europa"],["ro","Rumänien","Bukarest","Europa"],
+    ["bg","Bulgarien","Sofia","Europa"],["gr","Grekland","Aten","Europa"],
+    ["hr","Kroatien","Zagreb","Europa"],["si","Slovenien","Ljubljana","Europa"],
+    ["rs","Serbien","Belgrad","Europa"],["ba","Bosnien och Hercegovina","Sarajevo","Europa"],
+    ["mk","Nordmakedonien","Skopje","Europa"],["al","Albanien","Tirana","Europa"],
+    ["me","Montenegro","Podgorica","Europa"],["ee","Estland","Tallinn","Europa"],
+    ["lv","Lettland","Riga","Europa"],["lt","Litauen","Vilnius","Europa"],
+    ["ua","Ukraina","Kiev","Europa"],["by","Belarus","Minsk","Europa"],
+    ["md","Moldavien","Chisinau","Europa"],["ru","Ryssland","Moskva","Europa"],
+    ["cy","Cypern","Nicosia","Europa"],["mt","Malta","Valletta","Europa"],
+    ["cn","Kina","Peking","Asien"],["jp","Japan","Tokyo","Asien"],
+    ["kr","Sydkorea","Seoul","Asien"],["kp","Nordkorea","Pyongyang","Asien"],
+    ["in","Indien","New Delhi","Asien"],["pk","Pakistan","Islamabad","Asien"],
+    ["bd","Bangladesh","Dhaka","Asien"],["th","Thailand","Bangkok","Asien"],
+    ["vn","Vietnam","Hanoi","Asien"],["id","Indonesien","Jakarta","Asien"],
+    ["my","Malaysia","Kuala Lumpur","Asien"],["ph","Filippinerna","Manila","Asien"],
+    ["sg","Singapore","Singapore","Asien"],["mm","Myanmar","Naypyidaw","Asien"],
+    ["kh","Kambodja","Phnom Penh","Asien"],["la","Laos","Vientiane","Asien"],
+    ["np","Nepal","Katmandu","Asien"],["lk","Sri Lanka","Colombo","Asien"],
+    ["af","Afghanistan","Kabul","Asien"],["ir","Iran","Teheran","Asien"],
+    ["iq","Irak","Bagdad","Asien"],["sa","Saudiarabien","Riyadh","Asien"],
+    ["ae","Förenade Arabemiraten","Abu Dhabi","Asien"],["il","Israel","Jerusalem","Asien"],
+    ["jo","Jordanien","Amman","Asien"],["lb","Libanon","Beirut","Asien"],
+    ["sy","Syrien","Damaskus","Asien"],["tr","Turkiet","Ankara","Asien"],
+    ["kz","Kazakstan","Astana","Asien"],["uz","Uzbekistan","Tasjkent","Asien"],
+    ["qa","Qatar","Doha","Asien"],["kw","Kuwait","Kuwait City","Asien"],
+    ["mn","Mongoliet","Ulan Bator","Asien"],
+    ["eg","Egypten","Kairo","Afrika"],["ma","Marocko","Rabat","Afrika"],
+    ["dz","Algeriet","Alger","Afrika"],["tn","Tunisien","Tunis","Afrika"],
+    ["ly","Libyen","Tripoli","Afrika"],["ng","Nigeria","Abuja","Afrika"],
+    ["gh","Ghana","Accra","Afrika"],["ci","Elfenbenskusten","Yamoussoukro","Afrika"],
+    ["sn","Senegal","Dakar","Afrika"],["ml","Mali","Bamako","Afrika"],
+    ["et","Etiopien","Addis Abeba","Afrika"],["ke","Kenya","Nairobi","Afrika"],
+    ["tz","Tanzania","Dodoma","Afrika"],["ug","Uganda","Kampala","Afrika"],
+    ["za","Sydafrika","Pretoria","Afrika"],["zw","Zimbabwe","Harare","Afrika"],
+    ["zm","Zambia","Lusaka","Afrika"],["ao","Angola","Luanda","Afrika"],
+    ["mz","Moçambique","Maputo","Afrika"],["cm","Kamerun","Yaoundé","Afrika"],
+    ["cd","Kongo-Kinshasa","Kinshasa","Afrika"],["rw","Rwanda","Kigali","Afrika"],
+    ["mg","Madagaskar","Antananarivo","Afrika"],["sd","Sudan","Khartoum","Afrika"],
+    ["so","Somalia","Mogadishu","Afrika"],
+    ["us","USA","Washington D.C.","Amerika"],["ca","Kanada","Ottawa","Amerika"],
+    ["mx","Mexiko","Mexico City","Amerika"],["gt","Guatemala","Guatemala City","Amerika"],
+    ["cu","Kuba","Havanna","Amerika"],["jm","Jamaica","Kingston","Amerika"],
+    ["ht","Haiti","Port-au-Prince","Amerika"],["do","Dominikanska republiken","Santo Domingo","Amerika"],
+    ["pa","Panama","Panama City","Amerika"],["cr","Costa Rica","San José","Amerika"],
+    ["br","Brasilien","Brasília","Amerika"],["ar","Argentina","Buenos Aires","Amerika"],
+    ["cl","Chile","Santiago","Amerika"],["co","Colombia","Bogotá","Amerika"],
+    ["pe","Peru","Lima","Amerika"],["ve","Venezuela","Caracas","Amerika"],
+    ["ec","Ecuador","Quito","Amerika"],["bo","Bolivia","La Paz","Amerika"],
+    ["py","Paraguay","Asunción","Amerika"],["uy","Uruguay","Montevideo","Amerika"],
+    ["au","Australien","Canberra","Oceanien"],["nz","Nya Zeeland","Wellington","Oceanien"],
+    ["fj","Fiji","Suva","Oceanien"],["pg","Papua Nya Guinea","Port Moresby","Oceanien"]
+  ];
+  const REGIONS = ["Alla","Europa","Asien","Afrika","Amerika","Oceanien"];
+
+  /* Winnerbäck-citat: [ "textrad", "Låttitel", "Album (valfritt)" ]
+     Titlarna är riktiga låtar – skriv in dina egna favoritrader som citat. */
+  const QUOTES = [
+    ["(Skriv in en textrad från låten här)", "Elegi", "Kom änglar"],
+    ["(Skriv in en textrad från låten här)", "Kom änglar", "Kom änglar"],
+    ["(Skriv in en textrad från låten här)", "Solen i ögonen", "Söndermarken"],
+    ["(Skriv in en textrad från låten här)", "Vindarna", "Med solen i ögonen"],
+    ["(Skriv in en textrad från låten här)", "Hugga i sten", "Vatten under broarna"],
+    ["(Skriv in en textrad från låten här)", "Söndermarken", "Söndermarken"],
+    ["(Skriv in en textrad från låten här)", "Ampelmann", "Daimon"],
+    ["(Skriv in en textrad från låten här)", "Om du lämnade mig nu", "Tänk om jag ångrar mig..."]
+  ];
+
+  const flagEmoji = (code) =>
+    code.toUpperCase().replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)));
+
+  /* ================= SPELMOTOR ================= */
+  const $ = (id) => document.getElementById(id);
+  const root = document.documentElement;
+
+  const MODES = {
+    flag: {
+      mode: "flag",
+      title: "Flaggspel",
+      hasRegions: true,
+      hint: "Tryck på flaggan för att se svaret",
+      nextLabel: "Ny flagga →",
+      faceHTML: (it) => `<div class="face-flag">${flagEmoji(it[0])}</div>`,
+      ansTitle: (it) => it[1],
+      ansSub: (it) => `Huvudstad: <b>${it[2]}</b>`,
+      base: COUNTRIES,
+      filter: (region) => region === "Alla" ? COUNTRIES : COUNTRIES.filter((c) => c[3] === region),
+      footer: () => "Flaggorna ritas av din enhet (emoji) – ingen uppkoppling behövs."
+    },
+    song: {
+      mode: "song",
+      title: "Gissa Winnerbäck-låten",
+      hasRegions: false,
+      hint: "Tryck på citatet för att se vilken låt det är",
+      nextLabel: "Nästa citat →",
+      faceHTML: (it) => `<div class="face-quote">${it[0]}</div>`,
+      ansTitle: (it) => it[1],
+      ansSub: (it) => it[2] ? `Album: <b>${it[2]}</b>` : "",
+      base: QUOTES,
+      filter: () => QUOTES,
+      footer: () => 'Byt ut platshållar-citaten mot dina egna rader i listan <code>QUOTES</code> i koden.'
+    }
+  };
+
+  let M = null;
+  let activeRegion = "Alla";
+  let current = null, revealed = false, answered = false, roundOver = false;
+  let deck = [], roundSize = 0;
+  let stats = { right: 0, wrong: 0 };
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function render() {
+    $("statRight").textContent = stats.right;
+    $("statWrong").textContent = stats.wrong;
+    const remaining = roundOver ? 0 : deck.length + (current ? 1 : 0);
+    $("statRemain").textContent = remaining;
+    const done = roundSize ? roundSize - remaining : 0;
+    $("progFill").style.width = roundSize ? (done / roundSize) * 100 + "%" : "0";
+  }
+
+  function startRound() {
+    deck = shuffle(M.filter(activeRegion));
+    roundSize = deck.length;
+    stats = { right: 0, wrong: 0 };
+    roundOver = false;
+    nextCard();
+  }
+
+  function nextCard() {
+    if (deck.length === 0) { showRoundOver(); return; }
+    current = deck.pop();
+    revealed = false; answered = false; roundOver = false;
+    $("face").innerHTML = M.faceHTML(current);
+    $("hint").textContent = M.hint;
+    $("btnNext").textContent = M.nextLabel;
+    $("card").classList.remove("revealed", "done");
+    $("answer").classList.remove("show");
+    $("verdict").classList.remove("show");
+    render();
+  }
+
+  function reveal() {
+    if (revealed || roundOver) return;
+    revealed = true;
+    $("card").classList.add("revealed");
+    $("ansTitle").textContent = M.ansTitle(current);
+    $("ansSub").innerHTML = M.ansSub(current);
+    $("answer").classList.add("show");
+    $("verdict").classList.add("show");
+  }
+
+  function score(correct) {
+    if (!revealed || answered || roundOver) return;
+    answered = true;
+    correct ? stats.right++ : stats.wrong++;
+    render();
+    setTimeout(nextCard, 260);
+  }
+
+  function showRoundOver() {
+    roundOver = true; current = null;
+    const answeredCount = stats.right + stats.wrong;
+    $("face").innerHTML = `<div class="face-flag">${M.mode === "flag" ? "🎉" : "🎵"}</div>`;
+    $("card").classList.add("done");
+    $("card").classList.remove("revealed");
+    $("ansTitle").textContent = "Omgången klar!";
+    $("ansSub").innerHTML = `Du fick <b>${stats.right}</b> rätt av <b>${answeredCount}</b>`;
+    $("answer").classList.add("show");
+    $("verdict").classList.remove("show");
+    $("btnNext").textContent = "Spela igen →";
+    render();
+  }
+
+  function renderRegions() {
+    const nav = $("regions");
+    if (!M.hasRegions) { nav.classList.add("hidden"); return; }
+    nav.classList.remove("hidden");
+    nav.innerHTML = "";
+    REGIONS.forEach((r) => {
+      const b = document.createElement("button");
+      b.className = "chip" + (r === activeRegion ? " active" : "");
+      b.textContent = r;
+      b.onclick = () => { activeRegion = r; renderRegions(); startRound(); };
+      nav.appendChild(b);
+    });
+  }
+
+  function openGame(key) {
+    M = MODES[key];
+    activeRegion = "Alla";
+    root.setAttribute("data-mode", key === "song" ? "song" : "flag");
+    $("gameTitle").textContent = M.title;
+    $("gameFooter").innerHTML = M.footer();
+    renderRegions();
+    $("menu").classList.add("hidden");
+    $("game").classList.remove("hidden");
+    startRound();
+  }
+
+  function backToMenu() {
+    root.removeAttribute("data-mode");
+    $("game").classList.add("hidden");
+    $("menu").classList.remove("hidden");
+  }
+
+  /* ---- Kopplingar ---- */
+  document.querySelectorAll(".menu-card").forEach((btn) =>
+    btn.addEventListener("click", () => openGame(btn.dataset.game)));
+  $("btnBack").addEventListener("click", backToMenu);
+  $("faceBtn").addEventListener("click", () => {
+    if (roundOver) startRound();
+    else if (revealed) nextCard();
+    else reveal();
+  });
+  $("btnNext").addEventListener("click", () => { roundOver ? startRound() : nextCard(); });
+  $("btnRight").addEventListener("click", () => score(true));
+  $("btnWrong").addEventListener("click", () => score(false));
+  $("btnReset").addEventListener("click", startRound);
+  document.addEventListener("keydown", (e) => {
+    if ($("game").classList.contains("hidden")) return;
+    if (e.key === " ") { e.preventDefault(); roundOver ? startRound() : (revealed ? nextCard() : reveal()); }
+    else if (e.key.toLowerCase() === "r") score(true);
+    else if (e.key.toLowerCase() === "f") score(false);
+  });
+
+  $("flagCount").textContent = `${COUNTRIES.length} länder · välj världsdel`;
+  $("songCount").textContent = `${QUOTES.length} låtar`;
+</script>
+</body>
+</html>
