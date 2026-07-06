@@ -127,6 +127,33 @@
   }
   .chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
+  /* Album-väljare (flerval, mobilvänlig) */
+  .album-picker { margin: 10px 0 4px; }
+  .album-tools {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 9px;
+  }
+  .album-tools .selall {
+    background: transparent; border: 1px solid var(--accent); color: var(--accent-strong);
+    font: inherit; font-weight: 700; font-size: .82rem; padding: 8px 15px;
+    border-radius: 999px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .album-tools .count { font-size: .8rem; color: var(--ink-soft); white-space: nowrap; }
+  .album-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .acheck {
+    flex: 1 1 140px; display: flex; align-items: center; gap: 10px;
+    min-height: 46px; padding: 9px 13px; border: 1px solid var(--line);
+    border-radius: 12px; background: var(--card); cursor: pointer;
+    font-size: .86rem; font-weight: 600; color: var(--ink-soft);
+    -webkit-tap-highlight-color: transparent; user-select: none;
+    transition: border-color .15s, color .15s;
+  }
+  .acheck.on { border-color: var(--accent); color: var(--ink); }
+  .acheck input {
+    width: 21px; height: 21px; margin: 0; flex: 0 0 auto;
+    accent-color: var(--accent); cursor: pointer;
+  }
+
   .scoreboard {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 12px;
   }
@@ -778,16 +805,16 @@
       ansTitle: (it) => it[1],
       ansSub: (it) => it[2] ? `Album: <b>${it[2]}</b>` : "",
       base: QUOTES,
-      regions: SONG_ALBUMS,
-      filter: (album) => album === "Alla" ? QUOTES
-        : album === "Övrigt" ? QUOTES.filter((q) => !SONG_BIG_ALBUMS.has(q[2]))
-        : QUOTES.filter((q) => q[2] === album),
+      multiSelect: true,
+      albums: SONG_ALBUMS.filter((a) => a !== "Alla"),
       footer: () => 'Textrader hämtade från everhill.se/winnerback — välj album ovan.'
     }
   };
 
   let M = null;
   let activeRegion = "Alla";
+  let selectedAlbums = new Set();
+  const albumBucket = (q) => SONG_BIG_ALBUMS.has(q[2]) ? q[2] : "Övrigt";
   let current = null, revealed = false, answered = false, roundOver = false;
   let deck = [], roundSize = 0;
   let stats = { right: 0, wrong: 0 };
@@ -811,7 +838,21 @@
   }
 
   function startRound() {
-    deck = shuffle(M.filter(activeRegion));
+    const pool = M.multiSelect
+      ? M.base.filter((q) => selectedAlbums.has(albumBucket(q)))
+      : M.filter(activeRegion);
+    if (M.multiSelect && pool.length === 0) {
+      roundOver = true; current = null; deck = []; roundSize = 0;
+      stats = { right: 0, wrong: 0 };
+      $("face").innerHTML = `<div class="face-flag">🎵</div>`;
+      $("card").classList.add("done"); $("card").classList.remove("revealed");
+      $("ansTitle").textContent = "Inga album valda";
+      $("ansSub").innerHTML = "Kryssa i minst ett album för att spela.";
+      $("answer").classList.add("show"); $("verdict").classList.remove("show");
+      render();
+      return;
+    }
+    deck = shuffle(pool);
     roundSize = deck.length;
     stats = { right: 0, wrong: 0 };
     roundOver = false;
@@ -865,7 +906,9 @@
 
   function renderRegions() {
     const nav = $("regions");
+    if (M.multiSelect) { renderAlbumPicker(nav); return; }
     if (!M.hasRegions) { nav.classList.add("hidden"); return; }
+    nav.className = "regions";
     nav.classList.remove("hidden");
     nav.innerHTML = "";
     (M.regions || REGIONS).forEach((r) => {
@@ -877,9 +920,56 @@
     });
   }
 
+  function renderAlbumPicker(nav) {
+    nav.className = "album-picker";
+    nav.classList.remove("hidden");
+    nav.innerHTML = "";
+    const albums = M.albums;
+    const allOn = albums.every((a) => selectedAlbums.has(a));
+    const nSongs = new Set(
+      M.base.filter((q) => selectedAlbums.has(albumBucket(q))).map((q) => q[1])
+    ).size;
+
+    const tools = document.createElement("div");
+    tools.className = "album-tools";
+    const btn = document.createElement("button");
+    btn.className = "selall";
+    btn.textContent = allOn ? "Avmarkera alla" : "Välj alla";
+    btn.onclick = () => {
+      if (albums.every((a) => selectedAlbums.has(a))) selectedAlbums.clear();
+      else albums.forEach((a) => selectedAlbums.add(a));
+      renderRegions(); startRound();
+    };
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = `${nSongs} låtar valda`;
+    tools.appendChild(btn); tools.appendChild(count);
+    nav.appendChild(tools);
+
+    const grid = document.createElement("div");
+    grid.className = "album-grid";
+    albums.forEach((a) => {
+      const on = selectedAlbums.has(a);
+      const lab = document.createElement("label");
+      lab.className = "acheck" + (on ? " on" : "");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = on;
+      cb.onchange = () => {
+        cb.checked ? selectedAlbums.add(a) : selectedAlbums.delete(a);
+        renderRegions(); startRound();
+      };
+      const span = document.createElement("span");
+      span.textContent = a;
+      lab.appendChild(cb); lab.appendChild(span);
+      grid.appendChild(lab);
+    });
+    nav.appendChild(grid);
+  }
+
   function openGame(key) {
     M = MODES[key];
     activeRegion = "Alla";
+    if (M.multiSelect) selectedAlbums = new Set(M.albums);
     root.setAttribute("data-mode", key === "song" ? "song" : "flag");
     $("gameTitle").textContent = M.title;
     $("gameFooter").innerHTML = M.footer();
