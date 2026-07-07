@@ -892,6 +892,7 @@
   let selectedAlbums = new Set();
   let albumsOpen = false;   // album-panelen hopfälld som default
   let current = null, revealed = false, answered = false, roundOver = false;
+  let counted = false;   // om aktuellt citat redan räknats (skydd mot dubbelräkning vid läges-toggle)
   let deck = [], roundSize = 0;
   let stats = { right: 0, wrong: 0 };
 
@@ -960,6 +961,13 @@
     advancing = false;
     if (deck.length === 0) { showRoundOver(); return; }
     current = deck.pop();
+    counted = false;   // nytt citat → får räknas en gång
+    showCurrentCard();
+  }
+
+  // Renderar aktuellt kort (current) i nuvarande läge/svårighet – utan att dra nytt citat
+  function showCurrentCard() {
+    if (!current) return;
     revealed = false; answered = false; roundOver = false;
     $("face").innerHTML = M.faceHTML(current);
     $("btnNext").textContent = M.nextLabel;
@@ -1040,6 +1048,8 @@
   }
 
   function registerResult(correct) {
+    if (counted) return;   // samma citat redan räknat (t.ex. svarat, sen togglat läge)
+    counted = true;
     if (correct) {
       stats.right++; streak++;
       if (streak > roundBestStreak) roundBestStreak = streak;
@@ -1100,7 +1110,7 @@
 
   function shareResult() {
     const answered = stats.right + stats.wrong;
-    const lag = songMode === "choice" ? "Flerval" : "Självrätta";
+    const lag = songMode === "choice" ? "Flerval" : "Gissa själv";
     const svar = difficulty === "latt" ? "Lätt" : "Svår";
     const albums = M.albums.filter((a) => selectedAlbums.has(a));
     const albumRad = albums.length === M.albums.length
@@ -1215,9 +1225,11 @@
       });
       ctl.appendChild(s); return ctl;
     };
-    box.appendChild(seg("Läge", [["choice", "Flerval"], ["self", "Självrätta"]], songMode, (v) => {
+    box.appendChild(seg("Läge", [["choice", "Flerval"], ["self", "Gissa själv"]], songMode, (v) => {
       if (v === songMode) return;
-      songMode = v; LS.set("wq_mode", v); renderSongControls(); startRound();
+      songMode = v; LS.set("wq_mode", v); renderSongControls();
+      // Byt läge på samma citat i stället för att dra ett nytt
+      if (current && !roundOver) showCurrentCard(); else startRound();
     }));
     box.appendChild(seg("Svårighet", [["latt", "Lätt"], ["svar", "Svår"]], difficulty, (v) => {
       if (v === difficulty) return;
