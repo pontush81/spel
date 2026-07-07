@@ -370,6 +370,13 @@
   .mp-podium .row .rk { font-size: 1.3rem; width: 34px; text-align: center; }
   .mp-podium .row .nm { flex: 1; font-weight: 700; }
   .choice.chosen { outline: 3px solid var(--accent); outline-offset: -3px; }
+  .mp-count { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 40px 0; }
+  .mp-count-num {
+    font-size: 6rem; font-weight: 800; line-height: 1; color: var(--accent-strong);
+    width: 8rem; text-align: center;
+  }
+  .mp-count-label { font-size: 1.1rem; color: var(--ink-soft); font-weight: 600; }
+  @keyframes mpPop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
 </style>
 </head>
 <body>
@@ -1306,7 +1313,7 @@
     sb: null, ch: null, libLoading: null,
     role: null, pin: null, me: null, nick: "", phase: "menu", settings: null,
     questions: [], curIdx: -1, scores: null, answersQ: null, timer: null,
-    qNow: null, answered: false,
+    qNow: null, answered: false, countTimer: null,
   };
 
   const mpEsc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -1340,6 +1347,7 @@
   function mpLeave() {
     try { if (MP.ch) MP.ch.unsubscribe(); } catch (e) {}
     if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
+    if (MP.countTimer) { clearInterval(MP.countTimer); MP.countTimer = null; }
     MP.ch = null; MP.role = null; MP.pin = null;
     MP.questions = []; MP.curIdx = -1; MP.qNow = null;
   }
@@ -1390,11 +1398,13 @@
     };
   }
 
-  function mpRenderJoin() {
+  function mpRenderJoin(prefill) {
+    MP.phase = "menu";
     mpBody().innerHTML =
-      '<div class="mp-field"><label>Spelkod</label><input class="mp-input pin" id="mpPin" inputmode="numeric" maxlength="4" placeholder="0000"></div>' +
+      '<div class="mp-field"><label>Spelkod</label><input class="mp-input pin" id="mpPin" inputmode="numeric" maxlength="4" placeholder="0000" value="' + (prefill || "") + '"></div>' +
       '<div class="mp-field"><label>Ditt namn</label><input class="mp-input" id="mpNick" maxlength="16" placeholder="Smeknamn" value="' + mpEsc(MP.nick) + '"></div>' +
       '<button class="action btn-next" id="mpGo">Gå med →</button><p class="mp-status" id="mpErr"></p>';
+    if (prefill) $("mpNick").focus();
     $("mpGo").onclick = () => {
       const pin = $("mpPin").value.trim();
       const nick = $("mpNick").value.trim() || "Spelare";
@@ -1411,6 +1421,7 @@
     MP.role = role; MP.pin = pin; MP.me = mpPlayerId();
     MP.sb = MP.sb || window.supabase.createClient(MP.URL, MP.KEY);
     MP.ch = MP.sb.channel("spel:game:" + pin, { config: { broadcast: { self: true }, presence: { key: MP.me } } });
+    MP.ch.on("broadcast", { event: "countdown" }, (m) => mpOnCountdown(m.payload));
     MP.ch.on("broadcast", { event: "question" }, (m) => mpOnQuestion(m.payload));
     MP.ch.on("broadcast", { event: "reveal" }, (m) => mpOnReveal(m.payload));
     MP.ch.on("broadcast", { event: "finished" }, (m) => mpOnFinished(m.payload));
@@ -1437,15 +1448,30 @@
     MP.phase = "lobby";
     const isHost = MP.role === "host";
     mpBody().innerHTML =
-      (isHost ? '<div class="mp-pin-display"><small>Spelkod – dela med vännerna</small>' + MP.pin + '</div>'
+      (isHost ? '<div class="mp-pin-display"><small>Spelkod – dela med vännerna</small>' + MP.pin + '</div>' +
+                '<button class="action btn-ghost" id="mpShareLink">🔗 Dela länk</button>'
               : '<p class="mp-status">Du är med! Väntar på att värden startar…</p>') +
       '<div class="mp-field"><label>Spelare</label><div class="mp-players" id="mpRoster"></div></div>' +
       (isHost ? '<button class="action btn-next" id="mpStart">Starta spelet →</button><p class="mp-status" id="mpErr"></p>' : "");
     mpRenderRoster();
-    if (isHost) $("mpStart").onclick = () => {
-      if (mpRoster().length < 1) { $("mpErr").textContent = "Vänta på minst en spelare."; return; }
-      hostStartGame();
-    };
+    if (isHost) {
+      $("mpShareLink").onclick = () => mpShareLink($("mpShareLink"));
+      $("mpStart").onclick = () => {
+        if (mpRoster().length < 1) { $("mpErr").textContent = "Vänta på minst en spelare."; return; }
+        hostStartGame();
+      };
+    }
+  }
+  function mpLink() { return location.origin + location.pathname + "#join=" + MP.pin; }
+  function mpShareLink(btn) {
+    const url = mpLink();
+    if (navigator.share) {
+      navigator.share({ title: "Winnerbäck-quiz", text: "Gå med i mitt Winnerbäck-quiz! Kod " + MP.pin, url }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        btn.textContent = "✓ Länk kopierad"; setTimeout(() => { btn.textContent = "🔗 Dela länk"; }, 2000);
+      }).catch(() => {});
+    }
   }
   function mpRenderRoster() {
     const el = $("mpRoster"); if (!el) return;
@@ -1482,10 +1508,16 @@
   function hostNextQuestion() {
     MP.curIdx++;
     if (MP.curIdx >= MP.questions.length) { hostFinish(); return; }
+    // delad 3-2-1-nedräkning, sen skickas frågan så alla skärmar flippar samtidigt
+    MP.ch.send({ type: "broadcast", event: "countdown", payload: { index: MP.curIdx, total: MP.questions.length } });
+    if (MP.timer) clearTimeout(MP.timer);
+    MP.timer = setTimeout(() => hostSendQuestion(MP.curIdx), 3000);
+  }
+  function hostSendQuestion(idx) {
     MP.answersQ = new Map();
-    const q = MP.questions[MP.curIdx];
+    const q = MP.questions[idx];
     MP.ch.send({ type: "broadcast", event: "question", payload: {
-      index: MP.curIdx, total: MP.questions.length, timerSec: MP.TIMER, qIdx: q.qIdx, options: q.options
+      index: idx, total: MP.questions.length, timerSec: MP.TIMER, qIdx: q.qIdx, options: q.options
     } });
     if (MP.timer) clearTimeout(MP.timer);
     MP.timer = setTimeout(hostEndQuestion, MP.TIMER * 1000 + 700);
@@ -1521,7 +1553,29 @@
   }
 
   /* ---- Klient-rendering ---- */
+  function mpClearCount() { if (MP.countTimer) { clearInterval(MP.countTimer); MP.countTimer = null; } }
+  function mpOnCountdown(p) {
+    MP.phase = "countdown"; MP.answered = false; MP.qNow = null;
+    mpClearCount();
+    mpBody().innerHTML =
+      '<p class="mp-status">Fråga ' + (p.index + 1) + ' av ' + p.total + '</p>' +
+      '<div class="mp-count"><div class="mp-count-num" id="mpCountNum"></div><div class="mp-count-label">Gör dig redo…</div></div>';
+    let n = 3;
+    const el = $("mpCountNum");
+    const paint = () => {
+      el.textContent = n;
+      el.style.animation = "none";
+      requestAnimationFrame(() => { el.style.animation = "mpPop .5s ease-out"; });
+    };
+    paint();
+    MP.countTimer = setInterval(() => {
+      n--;
+      if (n <= 0) { mpClearCount(); return; }
+      paint();
+    }, 1000);
+  }
   function mpOnQuestion(p) {
+    mpClearCount();
     MP.phase = "question"; MP.qNow = p; MP.answered = false;
     const quote = QUOTES[p.qIdx] ? QUOTES[p.qIdx][0] : "";
     mpBody().innerHTML =
@@ -1550,6 +1604,7 @@
     MP.ch.send({ type: "broadcast", event: "answer", payload: { id: MP.me, index: MP.qNow.index, choiceIndex: i } });
   }
   function mpOnReveal(p) {
+    mpClearCount();
     MP.phase = "reveal";
     const box = $("mpChoices");
     if (box && MP.qNow) {
@@ -1572,6 +1627,7 @@
       '</div></div>';
   }
   function mpOnFinished(p) {
+    mpClearCount();
     MP.phase = "final";
     const medal = ["🥇", "🥈", "🥉"];
     mpBody().innerHTML =
@@ -1583,6 +1639,14 @@
     if (MP.role === "host") $("mpAgain").onclick = () => mpRenderLobby();
     $("mpToMenu").onclick = mpBackToMenu;
   }
+
+  /* ---- Direktlänk: …/#join=1234 öppnar Gå med med koden ifylld ---- */
+  function mpCheckDeepLink() {
+    const m = /join=(\d{4})/.exec(location.hash);
+    if (m && !MP.ch) { openMultiplayer(); mpRenderJoin(m[1]); }
+  }
+  window.addEventListener("hashchange", mpCheckDeepLink);
+  mpCheckDeepLink();
 </script>
 </body>
 </html>
