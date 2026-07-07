@@ -1319,10 +1319,10 @@
   const mpEsc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const mpBody = () => $("mpBody");
   const mpNewPin = () => String(Math.floor(1000 + Math.random() * 9000));
+  // Nytt id per anslutning (per flik) – INTE persistent i localStorage, annars
+  // krockar presence-nycklar när samma webbläsare har flera flikar i samma spel.
   function mpPlayerId() {
-    let id = LS.get("wq_pid", "");
-    if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : "p" + Math.random().toString(36).slice(2)); LS.set("wq_pid", id); }
-    return id;
+    return crypto.randomUUID ? crypto.randomUUID() : "p" + Math.random().toString(36).slice(2) + Math.floor(Math.random() * 1e6).toString(36);
   }
   function mpLoadLib() {
     if (window.supabase && window.supabase.createClient) return Promise.resolve();
@@ -1433,6 +1433,8 @@
         mpRenderLobby();
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         mpBody().innerHTML = '<p class="mp-status">Anslutningen misslyckades. Gå tillbaka och försök igen.</p>';
+        try { if (MP.ch) MP.ch.unsubscribe(); } catch (e) {}
+        MP.ch = null;
       }
     });
   }
