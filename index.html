@@ -358,6 +358,14 @@
   .mp-seg button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .mp-albums { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
   .mp-albums label { display: flex; align-items: center; gap: 8px; font-size: .9rem; padding: 4px; }
+  .mp-adv { border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .mp-adv > summary { cursor: pointer; padding: 13px 16px; font-weight: 700; list-style: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .mp-adv > summary::-webkit-details-marker { display: none; }
+  .mp-adv > summary::after { content: "▸"; margin-left: auto; color: var(--ink-soft); transition: transform .15s; }
+  .mp-adv[open] > summary::after { transform: rotate(90deg); }
+  .mp-adv .mp-advhint { color: var(--ink-soft); font-weight: 400; font-size: .8rem; }
+  .mp-adv .mp-seg { margin: 0 14px 8px; }
+  .mp-adv .mp-albums { margin: 0 14px 14px; }
   .mp-timer {
     height: 10px; border-radius: 999px; background: var(--bg-2); overflow: hidden; margin: 4px 0 2px;
   }
@@ -403,15 +411,23 @@
           <span class="mc-sub" id="songCount"></span>
         </span>
       </button>
-      <button class="menu-card" data-game="mp">
-        <span class="icon">🏆</span>
-        <span>
-          <span class="mc-title">Spela mot andra</span>
-          <span class="mc-sub">Winnerbäck-quiz i realtid · flera telefoner</span>
-        </span>
-      </button>
     </div>
     <p class="menu-hint">Tryck på en flagga/citat för att se svaret. Varje omgång visar allt en gång.</p>
+  </section>
+
+  <!-- ===== WINNERBÄCK: VÄLJ LÄGE ===== -->
+  <section id="songHub" class="hidden">
+    <div class="topbar">
+      <button class="back" id="hubBack">← Meny</button>
+      <span class="game-title">Gissa Winnerbäck-låten</span>
+    </div>
+    <div class="mp-wrap">
+      <p class="mp-status">Spela själv, eller tävla mot andra på varsin telefon.</p>
+      <div class="mp-choice">
+        <button class="mp-bigbtn" id="hubSolo"><span class="icon">🎵</span><span class="t">Spela själv</span><span class="s" id="hubSoloSub"></span></button>
+        <button class="mp-bigbtn" id="hubMp"><span class="icon">🏆</span><span class="t">Spela mot andra</span><span class="s">Flera telefoner</span></button>
+      </div>
+    </div>
   </section>
 
   <!-- ===== SPEL ===== -->
@@ -1257,9 +1273,23 @@
   /* ---- Kopplingar ---- */
   document.querySelectorAll(".menu-card").forEach((btn) =>
     btn.addEventListener("click", () => {
-      if (btn.dataset.game === "mp") openMultiplayer();
+      if (btn.dataset.game === "song") openSongHub();
       else openGame(btn.dataset.game);
     }));
+
+  function openSongHub() {
+    const songs = new Set(QUOTES.map((q) => q[1])).size;
+    $("hubSoloSub").textContent = songs + " låtar";
+    $("menu").classList.add("hidden");
+    $("songHub").classList.remove("hidden");
+  }
+  $("hubBack").addEventListener("click", () => {
+    $("songHub").classList.add("hidden");
+    $("menu").classList.remove("hidden");
+    updateMenuCounts();
+  });
+  $("hubSolo").addEventListener("click", () => { $("songHub").classList.add("hidden"); openGame("song"); });
+  $("hubMp").addEventListener("click", () => openMultiplayer());
   $("btnBack").addEventListener("click", backToMenu);
   $("faceBtn").addEventListener("click", () => {
     if (roundOver) { startRound(); return; }
@@ -1339,6 +1369,7 @@
   function openMultiplayer() {
     root.removeAttribute("data-mode");
     $("menu").classList.add("hidden");
+    $("songHub").classList.add("hidden");
     $("mp").classList.remove("hidden");
     MP.nick = LS.get("wq_nick", "");
     MP.phase = "menu";
@@ -1375,19 +1406,26 @@
       '<div class="mp-field"><label>Ditt namn</label><input class="mp-input" id="mpNick" maxlength="16" placeholder="Smeknamn" value="' + mpEsc(MP.nick) + '"></div>' +
       '<div class="mp-field"><label>Antal frågor</label><div class="mp-seg" id="mpQCount">' +
         '<button data-n="5">5</button><button data-n="10" class="on">10</button><button data-n="15">15</button></div></div>' +
-      '<div class="mp-field"><label>Album (ledtrådar dras härifrån)</label>' +
+      '<details class="mp-adv"><summary>Album&nbsp; <b id="mpAlbumSummary"></b> <span class="mp-advhint">tryck för att begränsa (valfritt)</span></summary>' +
         '<div class="mp-seg"><button type="button" id="mpAllOn">Alla</button><button type="button" id="mpAllOff">Inga</button></div>' +
         '<div class="mp-albums" id="mpAlbums">' +
           SONG_ALBUMS.map((a) => '<label><input type="checkbox" value="' + mpEsc(a) + '" checked> ' + mpEsc(a) + '</label>').join("") +
-        '</div></div>' +
+        '</div></details>' +
       '<button class="action btn-next" id="mpGo">Skapa spel →</button><p class="mp-status" id="mpErr"></p>';
     let qcount = 10;
     $("mpQCount").querySelectorAll("button").forEach((b) => b.onclick = () => {
       $("mpQCount").querySelectorAll("button").forEach((x) => x.classList.remove("on"));
       b.classList.add("on"); qcount = parseInt(b.dataset.n, 10);
     });
-    $("mpAllOn").onclick = () => $("mpAlbums").querySelectorAll("input").forEach((c) => c.checked = true);
-    $("mpAllOff").onclick = () => $("mpAlbums").querySelectorAll("input").forEach((c) => c.checked = false);
+    const updAlbums = () => {
+      const total = SONG_ALBUMS.length;
+      const n = $("mpAlbums").querySelectorAll("input:checked").length;
+      $("mpAlbumSummary").textContent = n === total ? "alla " + total : n + " av " + total;
+    };
+    $("mpAlbums").querySelectorAll("input").forEach((c) => c.onchange = updAlbums);
+    $("mpAllOn").onclick = () => { $("mpAlbums").querySelectorAll("input").forEach((c) => c.checked = true); updAlbums(); };
+    $("mpAllOff").onclick = () => { $("mpAlbums").querySelectorAll("input").forEach((c) => c.checked = false); updAlbums(); };
+    updAlbums();
     $("mpGo").onclick = () => {
       const nick = $("mpNick").value.trim() || "Värd";
       const sel = [...$("mpAlbums").querySelectorAll("input:checked")].map((c) => c.value);
