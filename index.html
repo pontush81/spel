@@ -316,6 +316,60 @@
     background: var(--card); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line);
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  /* ===== Multiplayer ===== */
+  .mp-wrap { display: flex; flex-direction: column; gap: 14px; }
+  .mp-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+  .mp-bigbtn {
+    display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center;
+    padding: 22px 12px; border-radius: 16px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); cursor: pointer; font: inherit; text-align: center;
+  }
+  .mp-bigbtn .icon { font-size: 2rem; }
+  .mp-bigbtn .t { font-weight: 700; }
+  .mp-bigbtn .s { font-size: .8rem; color: var(--ink-soft); }
+  .mp-field { display: flex; flex-direction: column; gap: 6px; }
+  .mp-field label { font-size: .8rem; color: var(--ink-soft); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .mp-input {
+    width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); font: inherit; box-sizing: border-box;
+  }
+  .mp-input.pin { text-align: center; font-size: 1.6rem; letter-spacing: .3em; font-weight: 700; }
+  .mp-pin-display {
+    text-align: center; font-size: 2.8rem; font-weight: 800; letter-spacing: .25em;
+    color: var(--accent-strong); background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 14px; margin: 4px 0;
+  }
+  .mp-pin-display small { display: block; font-size: .8rem; letter-spacing: .06em; color: var(--ink-soft); font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+  .mp-players { display: flex; flex-direction: column; gap: 8px; }
+  .mp-player {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--line);
+  }
+  .mp-player .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-2); font-size: 1rem; }
+  .mp-player .nm { font-weight: 600; flex: 1; }
+  .mp-player .badge { font-size: .7rem; color: var(--accent-ink); background: var(--accent); padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+  .mp-player .pts { font-weight: 800; color: var(--accent-strong); }
+  .mp-seg { display: flex; gap: 8px; }
+  .mp-seg button {
+    flex: 1; padding: 10px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer;
+  }
+  .mp-seg button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .mp-albums { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+  .mp-albums label { display: flex; align-items: center; gap: 8px; font-size: .9rem; padding: 4px; }
+  .mp-timer {
+    height: 10px; border-radius: 999px; background: var(--bg-2); overflow: hidden; margin: 4px 0 2px;
+  }
+  .mp-timer > div { height: 100%; background: var(--accent); width: 100%; transition: width 1s linear; }
+  .mp-q { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 1.5rem; line-height: 1.4; text-align: center; margin: 10px 0 6px; }
+  .mp-status { text-align: center; color: var(--ink-soft); font-size: .9rem; }
+  .mp-podium { display: flex; flex-direction: column; gap: 10px; align-items: center; margin: 8px 0; }
+  .mp-podium .row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+  .mp-podium .row.p1 { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .mp-podium .row .rk { font-size: 1.3rem; width: 34px; text-align: center; }
+  .mp-podium .row .nm { flex: 1; font-weight: 700; }
+  .choice.chosen { outline: 3px solid var(--accent); outline-offset: -3px; }
 </style>
 </head>
 <body>
@@ -340,6 +394,13 @@
         <span>
           <span class="mc-title">Gissa Winnerbäck-låten</span>
           <span class="mc-sub" id="songCount"></span>
+        </span>
+      </button>
+      <button class="menu-card" data-game="mp">
+        <span class="icon">🏆</span>
+        <span>
+          <span class="mc-title">Spela mot andra</span>
+          <span class="mc-sub">Winnerbäck-quiz i realtid · flera telefoner</span>
         </span>
       </button>
     </div>
@@ -387,6 +448,16 @@
     </div>
 
     <footer id="gameFooter"></footer>
+  </section>
+
+  <!-- ===== MULTIPLAYER ===== -->
+  <section id="mp" class="hidden">
+    <div class="topbar">
+      <button class="back" id="mpBack">← Meny</button>
+      <span class="game-title">Spela mot andra</span>
+    </div>
+    <div id="mpBody" class="mp-wrap"></div>
+    <footer>Realtid via Supabase · spela på varsin telefon i samma rum.</footer>
   </section>
 </div>
 
@@ -1178,7 +1249,10 @@
 
   /* ---- Kopplingar ---- */
   document.querySelectorAll(".menu-card").forEach((btn) =>
-    btn.addEventListener("click", () => openGame(btn.dataset.game)));
+    btn.addEventListener("click", () => {
+      if (btn.dataset.game === "mp") openMultiplayer();
+      else openGame(btn.dataset.game);
+    }));
   $("btnBack").addEventListener("click", backToMenu);
   $("faceBtn").addEventListener("click", () => {
     if (roundOver) { startRound(); return; }
@@ -1223,6 +1297,292 @@
     $("songCount").textContent = `${songs} låtar · ${SONG_ALBUMS.length} album` + (rek > 0 ? ` · längsta svit ${rek}` : "");
   }
   updateMenuCounts();
+
+  /* ================= MULTIPLAYER (Kahoot-läge) ================= */
+  const MP = {
+    URL: "https://drxlecwzhuvziflfmnqp.supabase.co",
+    KEY: "sb_publishable_0dXxxW1Gt3Hcae1s856-Xg_rYwvIUjm",
+    TIMER: 15, REVEAL_MS: 4500,
+    sb: null, ch: null, libLoading: null,
+    role: null, pin: null, me: null, nick: "", phase: "menu", settings: null,
+    questions: [], curIdx: -1, scores: null, answersQ: null, timer: null,
+    qNow: null, answered: false,
+  };
+
+  const mpEsc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const mpBody = () => $("mpBody");
+  const mpNewPin = () => String(Math.floor(1000 + Math.random() * 9000));
+  function mpPlayerId() {
+    let id = LS.get("wq_pid", "");
+    if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : "p" + Math.random().toString(36).slice(2)); LS.set("wq_pid", id); }
+    return id;
+  }
+  function mpLoadLib() {
+    if (window.supabase && window.supabase.createClient) return Promise.resolve();
+    if (MP.libLoading) return MP.libLoading;
+    MP.libLoading = new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      s.onload = res; s.onerror = () => rej(new Error("cdn"));
+      document.head.appendChild(s);
+    });
+    return MP.libLoading;
+  }
+
+  function openMultiplayer() {
+    root.removeAttribute("data-mode");
+    $("menu").classList.add("hidden");
+    $("mp").classList.remove("hidden");
+    MP.nick = LS.get("wq_nick", "");
+    MP.phase = "menu";
+    mpRenderMenu();
+  }
+  function mpLeave() {
+    try { if (MP.ch) MP.ch.unsubscribe(); } catch (e) {}
+    if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
+    MP.ch = null; MP.role = null; MP.pin = null;
+    MP.questions = []; MP.curIdx = -1; MP.qNow = null;
+  }
+  function mpBackToMenu() {
+    mpLeave();
+    $("mp").classList.add("hidden");
+    $("menu").classList.remove("hidden");
+  }
+  $("mpBack").addEventListener("click", mpBackToMenu);
+
+  function mpRenderMenu() {
+    MP.phase = "menu";
+    mpBody().innerHTML =
+      '<p class="mp-status">Skapa ett spel och dela koden, eller gå med i ett pågående spel. Ni spelar på varsin telefon i samma rum.</p>' +
+      '<div class="mp-choice">' +
+        '<button class="mp-bigbtn" id="mpCreate"><span class="icon">🎤</span><span class="t">Skapa spel</span><span class="s">Du blir värd</span></button>' +
+        '<button class="mp-bigbtn" id="mpJoin"><span class="icon">📲</span><span class="t">Gå med</span><span class="s">Ange kod</span></button>' +
+      '</div>';
+    $("mpCreate").onclick = mpRenderCreate;
+    $("mpJoin").onclick = mpRenderJoin;
+  }
+
+  function mpRenderCreate() {
+    mpBody().innerHTML =
+      '<div class="mp-field"><label>Ditt namn</label><input class="mp-input" id="mpNick" maxlength="16" placeholder="Smeknamn" value="' + mpEsc(MP.nick) + '"></div>' +
+      '<div class="mp-field"><label>Antal frågor</label><div class="mp-seg" id="mpQCount">' +
+        '<button data-n="5">5</button><button data-n="10" class="on">10</button><button data-n="15">15</button></div></div>' +
+      '<div class="mp-field"><label>Album (ledtrådar dras härifrån)</label>' +
+        '<div class="mp-seg"><button type="button" id="mpAllOn">Alla</button><button type="button" id="mpAllOff">Inga</button></div>' +
+        '<div class="mp-albums" id="mpAlbums">' +
+          SONG_ALBUMS.map((a) => '<label><input type="checkbox" value="' + mpEsc(a) + '" checked> ' + mpEsc(a) + '</label>').join("") +
+        '</div></div>' +
+      '<button class="action btn-next" id="mpGo">Skapa spel →</button><p class="mp-status" id="mpErr"></p>';
+    let qcount = 10;
+    $("mpQCount").querySelectorAll("button").forEach((b) => b.onclick = () => {
+      $("mpQCount").querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on"); qcount = parseInt(b.dataset.n, 10);
+    });
+    $("mpAllOn").onclick = () => $("mpAlbums").querySelectorAll("input").forEach((c) => c.checked = true);
+    $("mpAllOff").onclick = () => $("mpAlbums").querySelectorAll("input").forEach((c) => c.checked = false);
+    $("mpGo").onclick = () => {
+      const nick = $("mpNick").value.trim() || "Värd";
+      const sel = [...$("mpAlbums").querySelectorAll("input:checked")].map((c) => c.value);
+      if (sel.length === 0) { $("mpErr").textContent = "Välj minst ett album."; return; }
+      MP.nick = nick; LS.set("wq_nick", nick);
+      MP.settings = { albums: new Set(sel), num: qcount };
+      mpConnect(mpNewPin(), "host");
+    };
+  }
+
+  function mpRenderJoin() {
+    mpBody().innerHTML =
+      '<div class="mp-field"><label>Spelkod</label><input class="mp-input pin" id="mpPin" inputmode="numeric" maxlength="4" placeholder="0000"></div>' +
+      '<div class="mp-field"><label>Ditt namn</label><input class="mp-input" id="mpNick" maxlength="16" placeholder="Smeknamn" value="' + mpEsc(MP.nick) + '"></div>' +
+      '<button class="action btn-next" id="mpGo">Gå med →</button><p class="mp-status" id="mpErr"></p>';
+    $("mpGo").onclick = () => {
+      const pin = $("mpPin").value.trim();
+      const nick = $("mpNick").value.trim() || "Spelare";
+      if (!/^\d{4}$/.test(pin)) { $("mpErr").textContent = "Ange en fyrsiffrig kod."; return; }
+      MP.nick = nick; LS.set("wq_nick", nick);
+      mpConnect(pin, "player");
+    };
+  }
+
+  async function mpConnect(pin, role) {
+    mpBody().innerHTML = '<p class="mp-status">Ansluter…</p>';
+    try { await mpLoadLib(); }
+    catch (e) { mpBody().innerHTML = '<p class="mp-status">Kunde inte ladda realtidsbiblioteket. Kolla nätet och försök igen.</p>'; return; }
+    MP.role = role; MP.pin = pin; MP.me = mpPlayerId();
+    MP.sb = MP.sb || window.supabase.createClient(MP.URL, MP.KEY);
+    MP.ch = MP.sb.channel("spel:game:" + pin, { config: { broadcast: { self: true }, presence: { key: MP.me } } });
+    MP.ch.on("broadcast", { event: "question" }, (m) => mpOnQuestion(m.payload));
+    MP.ch.on("broadcast", { event: "reveal" }, (m) => mpOnReveal(m.payload));
+    MP.ch.on("broadcast", { event: "finished" }, (m) => mpOnFinished(m.payload));
+    if (role === "host") MP.ch.on("broadcast", { event: "answer" }, (m) => hostOnAnswer(m.payload));
+    MP.ch.on("presence", { event: "sync" }, () => { if (MP.phase === "lobby") mpRenderRoster(); });
+    MP.ch.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await MP.ch.track({ id: MP.me, name: MP.nick, isHost: role === "host" });
+        mpRenderLobby();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        mpBody().innerHTML = '<p class="mp-status">Anslutningen misslyckades. Gå tillbaka och försök igen.</p>';
+      }
+    });
+  }
+
+  function mpRoster() {
+    const st = MP.ch ? MP.ch.presenceState() : {};
+    const out = [];
+    for (const k in st) { const m = st[k] && st[k][0]; if (m) out.push(m); }
+    out.sort((a, b) => (b.isHost ? 1 : 0) - (a.isHost ? 1 : 0) || String(a.name).localeCompare(b.name));
+    return out;
+  }
+  function mpRenderLobby() {
+    MP.phase = "lobby";
+    const isHost = MP.role === "host";
+    mpBody().innerHTML =
+      (isHost ? '<div class="mp-pin-display"><small>Spelkod – dela med vännerna</small>' + MP.pin + '</div>'
+              : '<p class="mp-status">Du är med! Väntar på att värden startar…</p>') +
+      '<div class="mp-field"><label>Spelare</label><div class="mp-players" id="mpRoster"></div></div>' +
+      (isHost ? '<button class="action btn-next" id="mpStart">Starta spelet →</button><p class="mp-status" id="mpErr"></p>' : "");
+    mpRenderRoster();
+    if (isHost) $("mpStart").onclick = () => {
+      if (mpRoster().length < 1) { $("mpErr").textContent = "Vänta på minst en spelare."; return; }
+      hostStartGame();
+    };
+  }
+  function mpRenderRoster() {
+    const el = $("mpRoster"); if (!el) return;
+    const players = mpRoster();
+    el.innerHTML = players.map((p) =>
+      '<div class="mp-player"><span class="av">' + (p.isHost ? "🎤" : "🎧") + '</span>' +
+      '<span class="nm">' + mpEsc(p.name) + '</span>' + (p.isHost ? '<span class="badge">Värd</span>' : '') + '</div>'
+    ).join("") || '<p class="mp-status">Inga spelare än…</p>';
+  }
+
+  /* ---- Host-auktoritet ---- */
+  function hostBuildQuestions() {
+    const { albums, num } = MP.settings;
+    const pool = [];
+    QUOTES.forEach((q, i) => { if (albums.has(q[2])) pool.push(i); });
+    const poolTitles = [...new Set(pool.map((i) => QUOTES[i][1]))];
+    const pick = shuffle(pool).slice(0, Math.min(num, pool.length));
+    return pick.map((qIdx) => {
+      const correct = QUOTES[qIdx][1];
+      let others = shuffle(poolTitles.filter((t) => t !== correct)).slice(0, 3);
+      if (others.length < 3) {
+        const extra = shuffle(ALL_TITLES.filter((t) => t !== correct && !others.includes(t)));
+        others = others.concat(extra.slice(0, 3 - others.length));
+      }
+      return { qIdx, options: shuffle([correct, ...others]) };
+    });
+  }
+  function hostStartGame() {
+    MP.questions = hostBuildQuestions();
+    MP.scores = new Map();
+    MP.curIdx = -1;
+    hostNextQuestion();
+  }
+  function hostNextQuestion() {
+    MP.curIdx++;
+    if (MP.curIdx >= MP.questions.length) { hostFinish(); return; }
+    MP.answersQ = new Map();
+    const q = MP.questions[MP.curIdx];
+    MP.ch.send({ type: "broadcast", event: "question", payload: {
+      index: MP.curIdx, total: MP.questions.length, timerSec: MP.TIMER, qIdx: q.qIdx, options: q.options
+    } });
+    if (MP.timer) clearTimeout(MP.timer);
+    MP.timer = setTimeout(hostEndQuestion, MP.TIMER * 1000 + 700);
+  }
+  function hostOnAnswer(p) {
+    if (!MP.answersQ || p.index !== MP.curIdx || MP.answersQ.has(p.id)) return;
+    MP.answersQ.set(p.id, p.choiceIndex);
+    const present = mpRoster().map((x) => x.id);
+    if (present.length && present.every((id) => MP.answersQ.has(id))) {
+      if (MP.timer) clearTimeout(MP.timer);
+      MP.timer = setTimeout(hostEndQuestion, 300);
+    }
+  }
+  function hostEndQuestion() {
+    const q = MP.questions[MP.curIdx];
+    const correct = QUOTES[q.qIdx][1];
+    for (const [id, ci] of MP.answersQ) {
+      if (q.options[ci] === correct) MP.scores.set(id, (MP.scores.get(id) || 0) + 1);
+    }
+    MP.ch.send({ type: "broadcast", event: "reveal", payload: { index: MP.curIdx, board: hostBoard() } });
+    MP.timer = setTimeout(hostNextQuestion, MP.REVEAL_MS);
+  }
+  function hostFinish() {
+    MP.ch.send({ type: "broadcast", event: "finished", payload: { board: hostBoard() } });
+  }
+  function hostBoard() {
+    const names = {};
+    mpRoster().forEach((p) => names[p.id] = p.name);
+    const ids = new Set([...Object.keys(names), ...MP.scores.keys()]);
+    const arr = [...ids].map((id) => ({ id, name: names[id] || "—", score: MP.scores.get(id) || 0 }));
+    arr.sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
+    return arr;
+  }
+
+  /* ---- Klient-rendering ---- */
+  function mpOnQuestion(p) {
+    MP.phase = "question"; MP.qNow = p; MP.answered = false;
+    const quote = QUOTES[p.qIdx] ? QUOTES[p.qIdx][0] : "";
+    mpBody().innerHTML =
+      '<p class="mp-status">Fråga ' + (p.index + 1) + ' av ' + p.total + '</p>' +
+      '<div class="mp-timer"><div id="mpTimerBar"></div></div>' +
+      '<div class="card"><div class="mp-q">' + mpEsc(quote) + '</div>' +
+      '<div class="choices" id="mpChoices"></div><p class="mp-status" id="mpQStatus">Välj rätt låt!</p></div>' +
+      '<div id="mpBoard"></div>';
+    const box = $("mpChoices");
+    p.options.forEach((t, i) => {
+      const b = document.createElement("button");
+      b.className = "choice"; b.textContent = t;
+      b.onclick = () => mpAnswer(i, b);
+      box.appendChild(b);
+    });
+    const bar = $("mpTimerBar");
+    bar.style.transition = "none"; bar.style.width = "100%";
+    requestAnimationFrame(() => { bar.style.transition = "width " + p.timerSec + "s linear"; bar.style.width = "0%"; });
+  }
+  function mpAnswer(i, btn) {
+    if (MP.answered) return;
+    MP.answered = true;
+    $("mpChoices").querySelectorAll(".choice").forEach((b) => b.disabled = true);
+    btn.classList.add("chosen");
+    const st = $("mpQStatus"); if (st) st.textContent = "Du svarade – väntar på facit…";
+    MP.ch.send({ type: "broadcast", event: "answer", payload: { id: MP.me, index: MP.qNow.index, choiceIndex: i } });
+  }
+  function mpOnReveal(p) {
+    MP.phase = "reveal";
+    const box = $("mpChoices");
+    if (box && MP.qNow) {
+      const correct = QUOTES[MP.qNow.qIdx] ? QUOTES[MP.qNow.qIdx][1] : null;
+      box.classList.add("answered");
+      box.querySelectorAll(".choice").forEach((b) => {
+        b.disabled = true;
+        if (b.textContent === correct) b.classList.add("correct");
+        else if (b.classList.contains("chosen")) b.classList.add("wrong");
+      });
+      const st = $("mpQStatus"); if (st) st.innerHTML = "Rätt svar: <b>" + mpEsc(correct) + "</b>";
+    }
+    mpShowBoard(p.board);
+  }
+  function mpShowBoard(board) {
+    let el = $("mpBoard");
+    if (!el) { el = document.createElement("div"); el.id = "mpBoard"; mpBody().appendChild(el); }
+    el.innerHTML = '<div class="mp-field"><label>Ställning</label><div class="mp-players">' +
+      board.slice(0, 8).map((p, i) => '<div class="mp-player"><span class="av">' + (i + 1) + '</span><span class="nm">' + mpEsc(p.name) + '</span><span class="pts">' + p.score + '</span></div>').join("") +
+      '</div></div>';
+  }
+  function mpOnFinished(p) {
+    MP.phase = "final";
+    const medal = ["🥇", "🥈", "🥉"];
+    mpBody().innerHTML =
+      '<p class="mp-status">Slutresultat</p><div class="mp-podium">' +
+      p.board.map((x, i) => '<div class="row ' + (i === 0 ? "p1" : "") + '"><span class="rk">' + (medal[i] || (i + 1)) + '</span><span class="nm">' + mpEsc(x.name) + '</span><span class="pts">' + x.score + '</span></div>').join("") +
+      '</div>' +
+      (MP.role === "host" ? '<button class="action btn-next" id="mpAgain">Spela igen →</button>' : '<p class="mp-status">Värden kan starta en ny match.</p>') +
+      '<button class="action btn-ghost" id="mpToMenu">Till menyn</button>';
+    if (MP.role === "host") $("mpAgain").onclick = () => mpRenderLobby();
+    $("mpToMenu").onclick = mpBackToMenu;
+  }
 </script>
 </body>
 </html>
