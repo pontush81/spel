@@ -372,6 +372,8 @@
   .mp-timer > div { height: 100%; background: var(--accent); width: 100%; transition: width 1s linear; }
   .mp-q { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 1.5rem; line-height: 1.4; text-align: center; margin: 10px 0 6px; }
   .mp-status { text-align: center; color: var(--ink-soft); font-size: .9rem; }
+  .mp-gain { font-weight: 800; color: var(--ink-soft); }
+  .mp-gain.pos { color: var(--good); }
   .mp-podium { display: flex; flex-direction: column; gap: 10px; align-items: center; margin: 8px 0; }
   .mp-podium .row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
   .mp-podium .row.p1 { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -1564,7 +1566,7 @@
   }
   function hostOnAnswer(p) {
     if (!MP.answersQ || p.index !== MP.curIdx || MP.answersQ.has(p.id)) return;
-    MP.answersQ.set(p.id, p.choiceIndex);
+    MP.answersQ.set(p.id, { ci: p.choiceIndex, ms: typeof p.ms === "number" ? p.ms : MP.TIMER * 1000 });
     const present = mpRoster().map((x) => x.id);
     if (present.length && present.every((id) => MP.answersQ.has(id))) {
       if (MP.timer) clearTimeout(MP.timer);
@@ -1574,10 +1576,17 @@
   function hostEndQuestion() {
     const q = MP.questions[MP.curIdx];
     const correct = QUOTES[q.qIdx][1];
-    for (const [id, ci] of MP.answersQ) {
-      if (q.options[ci] === correct) MP.scores.set(id, (MP.scores.get(id) || 0) + 1);
+    const limit = MP.TIMER * 1000;
+    const gains = {};
+    for (const [id, a] of MP.answersQ) {
+      let pts = 0;
+      if (q.options[a.ci] === correct) {
+        pts = Math.round(1000 * (1 - Math.min(a.ms, limit) / limit)); // snabbhetspoäng 0–1000
+      }
+      gains[id] = pts;
+      if (pts) MP.scores.set(id, (MP.scores.get(id) || 0) + pts);
     }
-    MP.ch.send({ type: "broadcast", event: "reveal", payload: { index: MP.curIdx, board: hostBoard() } });
+    MP.ch.send({ type: "broadcast", event: "reveal", payload: { index: MP.curIdx, board: hostBoard(), gains } });
     MP.timer = setTimeout(hostNextQuestion, MP.REVEAL_MS);
   }
   function hostFinish() {
@@ -1634,14 +1643,16 @@
     const bar = $("mpTimerBar");
     bar.style.transition = "none"; bar.style.width = "100%";
     requestAnimationFrame(() => { bar.style.transition = "width " + p.timerSec + "s linear"; bar.style.width = "0%"; });
+    MP.qStart = performance.now();
   }
   function mpAnswer(i, btn) {
     if (MP.answered) return;
     MP.answered = true;
+    const ms = Math.max(0, Math.round(performance.now() - (MP.qStart || performance.now())));
     $("mpChoices").querySelectorAll(".choice").forEach((b) => b.disabled = true);
     btn.classList.add("chosen");
     const st = $("mpQStatus"); if (st) st.textContent = "Du svarade – väntar på facit…";
-    MP.ch.send({ type: "broadcast", event: "answer", payload: { id: MP.me, index: MP.qNow.index, choiceIndex: i } });
+    MP.ch.send({ type: "broadcast", event: "answer", payload: { id: MP.me, index: MP.qNow.index, choiceIndex: i, ms } });
   }
   function mpOnReveal(p) {
     mpClearCount();
@@ -1655,7 +1666,9 @@
         if (b.textContent === correct) b.classList.add("correct");
         else if (b.classList.contains("chosen")) b.classList.add("wrong");
       });
-      const st = $("mpQStatus"); if (st) st.innerHTML = "Rätt svar: <b>" + mpEsc(correct) + "</b>";
+      const gain = p.gains ? (p.gains[MP.me] || 0) : null;
+      const gainTxt = (MP.answered && gain !== null) ? ' <span class="mp-gain' + (gain > 0 ? " pos" : "") + '">+' + gain + ' p</span>' : "";
+      const st = $("mpQStatus"); if (st) st.innerHTML = "Rätt svar: <b>" + mpEsc(correct) + "</b>" + gainTxt;
     }
     mpShowBoard(p.board);
   }
