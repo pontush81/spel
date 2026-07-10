@@ -1337,22 +1337,21 @@
   }
   updateMenuCounts();
 
-  /* ================= MULTIPLAYER (Kahoot-läge) ================= */
+  /* ================= MULTIPLAYER (Kahoot, DB-drivet läge) ================= */
   const MP = {
     URL: "https://drxlecwzhuvziflfmnqp.supabase.co",
     KEY: "sb_publishable_0dXxxW1Gt3Hcae1s856-Xg_rYwvIUjm",
-    TIMER: 15, REVEAL_MS: 4500,
+    TIMER: 15, COUNT_MS: 3000, REVEAL_MS: 4500,
     sb: null, ch: null, libLoading: null,
     role: null, pin: null, me: null, nick: "", phase: "menu", settings: null,
-    questions: [], curIdx: -1, scores: null, answersQ: null, timer: null,
-    qNow: null, answered: false, countTimer: null,
+    game: null, players: [], questions: [], answeredIds: null, renderedKey: null,
+    timer: null, countTimer: null, answered: false, myChoice: null, qStart: null, wakeLock: null,
   };
 
   const mpEsc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const mpBody = () => $("mpBody");
   const mpNewPin = () => String(Math.floor(1000 + Math.random() * 9000));
-  // Nytt id per anslutning (per flik) – INTE persistent i localStorage, annars
-  // krockar presence-nycklar när samma webbläsare har flera flikar i samma spel.
+  const nowISO = () => new Date().toISOString();
   function mpPlayerId() {
     return crypto.randomUUID ? crypto.randomUUID() : "p" + Math.random().toString(36).slice(2) + Math.floor(Math.random() * 1e6).toString(36);
   }
@@ -1368,8 +1367,13 @@
     return MP.libLoading;
   }
 
-  function mpSend(event, payload) { if (MP.ch) MP.ch.send({ type: "broadcast", event, payload }); }
-  // Håll skärmen vaken under spel (annars pausar mobilen timers → spelet fryser)
+  /* ---- DB-hjälpare ---- */
+  async function gGet() { const { data } = await MP.sb.from("games").select().eq("pin", MP.pin).maybeSingle(); return data; }
+  async function gSet(patch) { patch.updated_at = nowISO(); await MP.sb.from("games").update(patch).eq("pin", MP.pin); }
+  async function pList() { const { data } = await MP.sb.from("players").select().eq("game_pin", MP.pin); return data || []; }
+  async function pUpsert(patch) { await MP.sb.from("players").upsert(Object.assign({ game_pin: MP.pin, player_id: MP.me }, patch), { onConflict: "game_pin,player_id" }); }
+
+  /* ---- Skärm vaken + räddningsknapp ---- */
   async function mpAcquireWake() {
     try { if ("wakeLock" in navigator && !MP.wakeLock) {
       MP.wakeLock = await navigator.wakeLock.request("screen");
@@ -1378,9 +1382,8 @@
   }
   function mpReleaseWake() { try { if (MP.wakeLock) { MP.wakeLock.release(); MP.wakeLock = null; } } catch (e) {} }
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && MP.ch && !$("mp").classList.contains("hidden")) mpAcquireWake();
+    if (document.visibilityState === "visible" && MP.ch && !$("mp").classList.contains("hidden")) { mpAcquireWake(); mpResync(); }
   });
-  // Värdens räddnings-/skip-knapp: tvinga spelet vidare om det skulle hänga sig
   function mpHostControls() {
     if (MP.role !== "host") return;
     const b = document.createElement("button");
@@ -1389,13 +1392,15 @@
     mpBody().appendChild(b);
   }
   function hostForceNext() {
-    if (MP.role !== "host") return;
+    if (MP.role !== "host" || !MP.game) return;
     if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
-    if (MP.phase === "question") hostEndQuestion();
-    else if (MP.phase === "countdown") hostSendQuestion(MP.curIdx);
-    else hostNextQuestion();
+    const idx = MP.game.current_index;
+    if (MP.game.status === "question") hostToReveal(idx);
+    else if (MP.game.status === "countdown") hostToQuestion(idx);
+    else if (MP.game.status === "reveal") { (idx + 1 < MP.questions.length) ? hostToCountdown(idx + 1) : hostFinish(); }
   }
 
+  /* ---- Navigation ---- */
   function openMultiplayer() {
     root.removeAttribute("data-mode");
     $("menu").classList.add("hidden");
@@ -1406,12 +1411,12 @@
     mpRenderMenu();
   }
   function mpLeave() {
-    try { if (MP.ch) MP.ch.unsubscribe(); } catch (e) {}
+    try { if (MP.sb && MP.pin && MP.me) MP.sb.from("players").delete().eq("game_pin", MP.pin).eq("player_id", MP.me); } catch (e) {}
+    try { if (MP.ch) MP.sb.removeChannel(MP.ch); } catch (e) {}
     if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
     if (MP.countTimer) { clearInterval(MP.countTimer); MP.countTimer = null; }
     mpReleaseWake();
-    MP.ch = null; MP.role = null; MP.pin = null; MP.joined = false;
-    MP.questions = []; MP.curIdx = -1; MP.qNow = null;
+    MP.ch = null; MP.role = null; MP.pin = null; MP.game = null; MP.questions = []; MP.renderedKey = null;
   }
   function mpBackToMenu() {
     mpLeave();
@@ -1429,7 +1434,7 @@
         '<button class="mp-bigbtn" id="mpJoin"><span class="icon">📲</span><span class="t">Gå med</span><span class="s">Ange kod</span></button>' +
       '</div>';
     $("mpCreate").onclick = mpRenderCreate;
-    $("mpJoin").onclick = mpRenderJoin;
+    $("mpJoin").onclick = () => mpRenderJoin();
   }
 
   function mpRenderCreate() {
@@ -1483,81 +1488,97 @@
     };
   }
 
+  /* ---- Anslutning ---- */
   async function mpConnect(pin, role) {
     mpBody().innerHTML = '<p class="mp-status">Ansluter…</p>';
     try { await mpLoadLib(); }
     catch (e) { mpBody().innerHTML = '<p class="mp-status">Kunde inte ladda realtidsbiblioteket. Kolla nätet och försök igen.</p>'; return; }
-    MP.role = role; MP.pin = pin; MP.me = mpPlayerId();
+    MP.role = role; MP.pin = pin; MP.me = mpPlayerId(); MP.renderedKey = null;
     MP.sb = MP.sb || window.supabase.createClient(MP.URL, MP.KEY);
-    MP.joined = false;
-    MP.ch = MP.sb.channel("spel:game:" + pin, { config: { broadcast: { self: true }, presence: { key: MP.me } } });
-    MP.ch.on("broadcast", { event: "countdown" }, (m) => mpOnCountdown(m.payload));
-    MP.ch.on("broadcast", { event: "question" }, (m) => mpOnQuestion(m.payload));
-    MP.ch.on("broadcast", { event: "reveal" }, (m) => mpOnReveal(m.payload));
-    MP.ch.on("broadcast", { event: "finished" }, (m) => mpOnFinished(m.payload));
-    if (role === "host") MP.ch.on("broadcast", { event: "answer" }, (m) => hostOnAnswer(m.payload));
-    MP.ch.on("presence", { event: "sync" }, () => { if (MP.phase === "lobby") mpRenderRoster(); });
-    MP.ch.subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        try { await MP.ch.track({ id: MP.me, name: MP.nick, isHost: role === "host" }); } catch (e) {}
-        mpAcquireWake();
-        if (!MP.joined) { MP.joined = true; mpRenderLobby(); } // första anslutningen → lobby; reconnect → behåll spelet
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
-        if (MP.countTimer) { clearInterval(MP.countTimer); MP.countTimer = null; }
-        try { if (MP.ch) MP.ch.unsubscribe(); } catch (e) {}
-        MP.ch = null;
-        mpBody().innerHTML = '<p class="mp-status">Anslutningen tappades. Gå tillbaka till menyn och starta om spelet.</p>';
+    try {
+      if (role === "host") {
+        await MP.sb.from("games").upsert({ pin, host_id: MP.me, status: "lobby", total: MP.settings.num, timer_sec: MP.TIMER, current_index: -1, questions: [], board: [], gains: {} }, { onConflict: "pin" });
+      } else {
+        const g = await gGet();
+        if (!g) { mpBody().innerHTML = '<p class="mp-status">Hittade inget spel med den koden. Kolla koden och försök igen.</p>'; return; }
       }
-    });
+      await pUpsert({ name: MP.nick, is_host: role === "host", score: 0, last_seen: nowISO() });
+    } catch (e) {
+      mpBody().innerHTML = '<p class="mp-status">Kunde inte ansluta. Försök igen.</p>'; return;
+    }
+    mpSubscribe(pin);
+    MP.game = await gGet();
+    MP.players = await pList();
+    mpAcquireWake();
+    if (role === "host" && MP.game && MP.game.status !== "lobby" && MP.game.status !== "finished") {
+      MP.questions = MP.game.questions || [];
+      hostResume();
+    }
+    renderFromGame();
   }
 
-  function mpRoster() {
-    const st = MP.ch ? MP.ch.presenceState() : {};
-    const out = [];
-    for (const k in st) { const m = st[k] && st[k][0]; if (m) out.push(m); }
-    out.sort((a, b) => (b.isHost ? 1 : 0) - (a.isHost ? 1 : 0) || String(a.name).localeCompare(b.name));
-    return out;
+  function mpSubscribe(pin) {
+    const ch = MP.sb.channel("wq:" + pin);
+    ch.on("postgres_changes", { event: "*", schema: "public", table: "games", filter: "pin=eq." + pin }, (p) => { MP.game = p.new; renderFromGame(); });
+    ch.on("postgres_changes", { event: "*", schema: "public", table: "players", filter: "game_pin=eq." + pin }, async () => { MP.players = await pList(); if (MP.phase === "lobby") mpRenderRoster(); });
+    if (MP.role === "host") ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "answers", filter: "game_pin=eq." + pin }, (p) => hostOnAnswer(p.new));
+    ch.subscribe((status) => {
+      if (status === "SUBSCRIBED") { mpAcquireWake(); setTimeout(mpResync, 1500); } // stäng bindnings-fönstret
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") { if (MP.ch) setTimeout(mpResync, 1500); }
+    });
+    MP.ch = ch;
   }
+
+  async function mpResync() {
+    if (!MP.ch || !MP.pin || !MP.sb) return;
+    try {
+      MP.game = await gGet(); MP.players = await pList();
+      renderFromGame();
+      if (MP.role === "host") hostResume();
+    } catch (e) {}
+  }
+
+  function renderFromGame() {
+    const g = MP.game; if (!g) return;
+    const key = g.status + ":" + g.current_index;
+    if (key === MP.renderedKey) { if (g.status === "lobby") mpRenderRoster(); return; }
+    MP.renderedKey = key;
+    MP.phase = g.status;
+    if (g.status === "lobby") mpRenderLobby();
+    else if (g.status === "countdown") mpRenderCountdown(g);
+    else if (g.status === "question") mpRenderQuestion(g);
+    else if (g.status === "reveal") mpRenderReveal(g);
+    else if (g.status === "finished") mpRenderFinished(g);
+  }
+
+  /* ---- Lobby ---- */
   function mpRenderLobby() {
     MP.phase = "lobby";
     const isHost = MP.role === "host";
     mpBody().innerHTML =
-      (isHost ? '<div class="mp-pin-display"><small>Spelkod – dela med vännerna</small>' + MP.pin + '</div>' +
-                '<button class="action btn-ghost" id="mpShareLink">🔗 Dela länk</button>'
+      (isHost ? '<div class="mp-pin-display"><small>Spelkod – dela med vännerna</small>' + MP.pin + '</div><button class="action btn-ghost" id="mpShareLink">🔗 Dela länk</button>'
               : '<p class="mp-status">Du är med! Väntar på att värden startar…</p>') +
       '<div class="mp-field"><label>Spelare</label><div class="mp-players" id="mpRoster"></div></div>' +
       (isHost ? '<button class="action btn-next" id="mpStart">Starta spelet →</button><p class="mp-status" id="mpErr"></p>' : "");
     mpRenderRoster();
     if (isHost) {
       $("mpShareLink").onclick = () => mpShareLink($("mpShareLink"));
-      $("mpStart").onclick = () => {
-        if (mpRoster().length < 1) { $("mpErr").textContent = "Vänta på minst en spelare."; return; }
-        hostStartGame();
-      };
-    }
-  }
-  function mpLink() { return location.origin + location.pathname + "#join=" + MP.pin; }
-  function mpShareLink(btn) {
-    const url = mpLink();
-    if (navigator.share) {
-      navigator.share({ title: "Winnerbäck-quiz", text: "Gå med i mitt Winnerbäck-quiz! Kod " + MP.pin, url }).catch(() => {});
-    } else if (navigator.clipboard) {
-      navigator.clipboard.writeText(url).then(() => {
-        btn.textContent = "✓ Länk kopierad"; setTimeout(() => { btn.textContent = "🔗 Dela länk"; }, 2000);
-      }).catch(() => {});
+      $("mpStart").onclick = () => { if (MP.players.length < 1) { $("mpErr").textContent = "Vänta på minst en spelare."; return; } hostStart(); };
     }
   }
   function mpRenderRoster() {
     const el = $("mpRoster"); if (!el) return;
-    const players = mpRoster();
-    el.innerHTML = players.map((p) =>
-      '<div class="mp-player"><span class="av">' + (p.isHost ? "🎤" : "🎧") + '</span>' +
-      '<span class="nm">' + mpEsc(p.name) + '</span>' + (p.isHost ? '<span class="badge">Värd</span>' : '') + '</div>'
-    ).join("") || '<p class="mp-status">Inga spelare än…</p>';
+    const ps = MP.players.slice().sort((a, b) => (b.is_host ? 1 : 0) - (a.is_host ? 1 : 0) || String(a.name).localeCompare(b.name));
+    el.innerHTML = ps.map((p) => '<div class="mp-player"><span class="av">' + (p.is_host ? "🎤" : "🎧") + '</span><span class="nm">' + mpEsc(p.name) + '</span>' + (p.is_host ? '<span class="badge">Värd</span>' : '') + '</div>').join("") || '<p class="mp-status">Inga spelare än…</p>';
+  }
+  function mpLink() { return location.origin + location.pathname + "#join=" + MP.pin; }
+  function mpShareLink(btn) {
+    const url = mpLink();
+    if (navigator.share) navigator.share({ title: "Winnerbäck-quiz", text: "Gå med i mitt Winnerbäck-quiz! Kod " + MP.pin, url }).catch(() => {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => { btn.textContent = "✓ Länk kopierad"; setTimeout(() => { btn.textContent = "🔗 Dela länk"; }, 2000); }).catch(() => {});
   }
 
-  /* ---- Host-auktoritet ---- */
+  /* ---- Host-auktoritet (skriver tillstånd till DB) ---- */
   function hostBuildQuestions() {
     const { albums, num } = MP.settings;
     const pool = [];
@@ -1574,136 +1595,140 @@
       return { qIdx, options: shuffle([correct, ...others]) };
     });
   }
-  function hostStartGame() {
+  function hostArm(endsMs, fn) { if (MP.timer) clearTimeout(MP.timer); MP.timer = setTimeout(fn, Math.max(0, endsMs - Date.now())); }
+  async function hostStart() {
     MP.questions = hostBuildQuestions();
-    MP.scores = new Map();
-    MP.curIdx = -1;
-    hostNextQuestion();
+    await gSet({ questions: MP.questions, total: MP.questions.length, current_index: -1 });
+    hostToCountdown(0);
   }
-  function hostNextQuestion() {
-    MP.curIdx++;
-    if (MP.curIdx >= MP.questions.length) { hostFinish(); return; }
-    // delad 3-2-1-nedräkning, sen skickas frågan så alla skärmar flippar samtidigt
-    mpSend("countdown", { index: MP.curIdx, total: MP.questions.length });
-    if (MP.timer) clearTimeout(MP.timer);
-    MP.timer = setTimeout(() => hostSendQuestion(MP.curIdx), 3000);
+  async function hostToCountdown(idx) {
+    MP.answeredIds = new Set();
+    const ends = Date.now() + MP.COUNT_MS;
+    await gSet({ status: "countdown", current_index: idx, phase_ends_at: new Date(ends).toISOString(), gains: {} });
+    hostArm(ends, () => hostToQuestion(idx));
   }
-  function hostSendQuestion(idx) {
-    MP.answersQ = new Map();
-    const q = MP.questions[idx];
-    mpSend("question", { index: idx, total: MP.questions.length, timerSec: MP.TIMER, qIdx: q.qIdx, options: q.options });
-    if (MP.timer) clearTimeout(MP.timer);
-    MP.timer = setTimeout(hostEndQuestion, MP.TIMER * 1000 + 700);
+  async function hostToQuestion(idx) {
+    MP.answeredIds = new Set();
+    const ends = Date.now() + MP.TIMER * 1000;
+    await gSet({ status: "question", current_index: idx, phase_ends_at: new Date(ends).toISOString() });
+    hostArm(ends, () => hostToReveal(idx));
   }
-  function hostOnAnswer(p) {
-    if (!MP.answersQ || p.index !== MP.curIdx || MP.answersQ.has(p.id)) return;
-    MP.answersQ.set(p.id, { ci: p.choiceIndex, ms: typeof p.ms === "number" ? p.ms : MP.TIMER * 1000 });
-    const present = mpRoster().map((x) => x.id);
-    if (present.length && present.every((id) => MP.answersQ.has(id))) {
-      if (MP.timer) clearTimeout(MP.timer);
-      MP.timer = setTimeout(hostEndQuestion, 300);
-    }
+  function hostOnAnswer(row) {
+    if (!MP.game || MP.game.status !== "question" || row.question_index !== MP.game.current_index) return;
+    if (!MP.answeredIds) MP.answeredIds = new Set();
+    MP.answeredIds.add(row.player_id);
+    if (MP.players.length && MP.answeredIds.size >= MP.players.length) hostArm(Date.now() + 300, () => hostToReveal(MP.game.current_index));
   }
-  function hostEndQuestion() {
-    const q = MP.questions[MP.curIdx];
+  async function hostToReveal(idx) {
+    if (!MP.game || MP.game.status === "reveal") return;
+    const q = MP.questions[idx]; if (!q) return;
     const correct = QUOTES[q.qIdx][1];
     const limit = MP.TIMER * 1000;
+    const ansRes = await MP.sb.from("answers").select().eq("game_pin", MP.pin).eq("question_index", idx);
+    const players = await pList();
+    const scoreById = {}; players.forEach((p) => scoreById[p.player_id] = p.score);
     const gains = {};
-    for (const [id, a] of MP.answersQ) {
+    for (const a of (ansRes.data || [])) {
       let pts = 0;
-      if (q.options[a.ci] === correct) {
-        pts = Math.round(1000 * (1 - Math.min(a.ms, limit) / limit)); // snabbhetspoäng 0–1000
-      }
-      gains[id] = pts;
-      if (pts) MP.scores.set(id, (MP.scores.get(id) || 0) + pts);
+      if (q.options[a.choice_index] === correct) pts = Math.round(1000 * (1 - Math.min(a.ms, limit) / limit));
+      gains[a.player_id] = pts;
     }
-    mpSend("reveal", { index: MP.curIdx, board: hostBoard(), gains });
-    MP.timer = setTimeout(hostNextQuestion, MP.REVEAL_MS);
+    for (const pid in gains) if (gains[pid] > 0) {
+      const ns = (scoreById[pid] || 0) + gains[pid]; scoreById[pid] = ns;
+      await MP.sb.from("players").update({ score: ns }).eq("game_pin", MP.pin).eq("player_id", pid);
+    }
+    const board = players.map((p) => ({ id: p.player_id, name: p.name, score: scoreById[p.player_id] || 0 })).sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
+    const ends = Date.now() + MP.REVEAL_MS;
+    await gSet({ status: "reveal", gains, board, phase_ends_at: new Date(ends).toISOString() });
+    hostArm(ends, () => { (idx + 1 < MP.questions.length) ? hostToCountdown(idx + 1) : hostFinish(); });
   }
-  function hostFinish() {
-    mpSend("finished", { board: hostBoard() });
+  async function hostFinish() {
+    const players = await pList();
+    const board = players.map((p) => ({ id: p.player_id, name: p.name, score: p.score })).sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
+    await gSet({ status: "finished", board, phase_ends_at: null });
   }
-  function hostBoard() {
-    const names = {};
-    mpRoster().forEach((p) => names[p.id] = p.name);
-    const ids = new Set([...Object.keys(names), ...MP.scores.keys()]);
-    const arr = [...ids].map((id) => ({ id, name: names[id] || "—", score: MP.scores.get(id) || 0 }));
-    arr.sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
-    return arr;
+  async function hostPlayAgain() {
+    await MP.sb.from("players").update({ score: 0 }).eq("game_pin", MP.pin);
+    await gSet({ status: "lobby", current_index: -1, questions: [], board: [], gains: {}, phase_ends_at: null });
+  }
+  function hostResume() {
+    if (!MP.game || MP.role !== "host") return;
+    if (MP.game.questions && MP.game.questions.length) MP.questions = MP.game.questions;
+    const idx = MP.game.current_index;
+    const ends = MP.game.phase_ends_at ? new Date(MP.game.phase_ends_at).getTime() : Date.now();
+    if (MP.game.status === "countdown") hostArm(ends, () => hostToQuestion(idx));
+    else if (MP.game.status === "question") hostArm(ends, () => hostToReveal(idx));
+    else if (MP.game.status === "reveal") hostArm(ends, () => { (idx + 1 < MP.questions.length) ? hostToCountdown(idx + 1) : hostFinish(); });
   }
 
   /* ---- Klient-rendering ---- */
   function mpClearCount() { if (MP.countTimer) { clearInterval(MP.countTimer); MP.countTimer = null; } }
-  function mpOnCountdown(p) {
-    MP.phase = "countdown"; MP.answered = false; MP.qNow = null;
+  function mpRenderCountdown(g) {
+    MP.answered = false; MP.myChoice = null;
     mpClearCount();
     mpBody().innerHTML =
-      '<p class="mp-status">Fråga ' + (p.index + 1) + ' av ' + p.total + '</p>' +
+      '<p class="mp-status">Fråga ' + (g.current_index + 1) + ' av ' + g.total + '</p>' +
       '<div class="mp-count"><div class="mp-count-num" id="mpCountNum"></div><div class="mp-count-label">Gör dig redo…</div></div>';
-    let n = 3;
     const el = $("mpCountNum");
+    const ends = g.phase_ends_at ? new Date(g.phase_ends_at).getTime() : Date.now() + MP.COUNT_MS;
+    let last = -1;
     const paint = () => {
-      el.textContent = n;
-      el.style.animation = "none";
-      requestAnimationFrame(() => { el.style.animation = "mpPop .5s ease-out"; });
+      const n = Math.max(1, Math.ceil((ends - Date.now()) / 1000));
+      if (n !== last) { last = n; el.textContent = n; el.style.animation = "none"; requestAnimationFrame(() => { el.style.animation = "mpPop .5s ease-out"; }); }
     };
     paint();
-    MP.countTimer = setInterval(() => {
-      n--;
-      if (n <= 0) { mpClearCount(); return; }
-      paint();
-    }, 1000);
+    MP.countTimer = setInterval(() => { if (Date.now() >= ends) { mpClearCount(); return; } paint(); }, 200);
     mpHostControls();
   }
-  function mpOnQuestion(p) {
+  function mpRenderQuestion(g) {
     mpClearCount();
-    MP.phase = "question"; MP.qNow = p; MP.answered = false;
-    const quote = QUOTES[p.qIdx] ? QUOTES[p.qIdx][0] : "";
+    MP.answered = false; MP.myChoice = null; MP.qStart = performance.now();
+    const q = g.questions && g.questions[g.current_index] ? g.questions[g.current_index] : null;
+    const quote = q && QUOTES[q.qIdx] ? QUOTES[q.qIdx][0] : "";
+    const opts = q ? q.options : [];
     mpBody().innerHTML =
-      '<p class="mp-status">Fråga ' + (p.index + 1) + ' av ' + p.total + '</p>' +
+      '<p class="mp-status">Fråga ' + (g.current_index + 1) + ' av ' + g.total + '</p>' +
       '<div class="mp-timer"><div id="mpTimerBar"></div></div>' +
       '<div class="card"><div class="mp-q">' + mpEsc(quote) + '</div>' +
-      '<div class="choices" id="mpChoices"></div><p class="mp-status" id="mpQStatus">Välj rätt låt!</p></div>' +
-      '<div id="mpBoard"></div>';
+      '<div class="choices" id="mpChoices"></div><p class="mp-status" id="mpQStatus">Välj rätt låt!</p></div><div id="mpBoard"></div>';
     const box = $("mpChoices");
-    p.options.forEach((t, i) => {
-      const b = document.createElement("button");
-      b.className = "choice"; b.textContent = t;
-      b.onclick = () => mpAnswer(i, b);
-      box.appendChild(b);
-    });
+    opts.forEach((t, i) => { const b = document.createElement("button"); b.className = "choice"; b.textContent = t; b.onclick = () => mpAnswer(i, b); box.appendChild(b); });
+    const total = MP.TIMER * 1000;
+    const ends = g.phase_ends_at ? new Date(g.phase_ends_at).getTime() : Date.now() + total;
+    const remain = Math.max(0, ends - Date.now());
     const bar = $("mpTimerBar");
-    bar.style.transition = "none"; bar.style.width = "100%";
-    requestAnimationFrame(() => { bar.style.transition = "width " + p.timerSec + "s linear"; bar.style.width = "0%"; });
-    MP.qStart = performance.now();
+    bar.style.transition = "none"; bar.style.width = (100 * remain / total) + "%";
+    requestAnimationFrame(() => { bar.style.transition = "width " + (remain / 1000) + "s linear"; bar.style.width = "0%"; });
     mpHostControls();
   }
-  function mpAnswer(i, btn) {
-    if (MP.answered) return;
-    MP.answered = true;
-    const ms = Math.max(0, Math.round(performance.now() - (MP.qStart || performance.now())));
+  async function mpAnswer(i, btn) {
+    if (MP.answered || !MP.game || MP.game.status !== "question") return;
+    MP.answered = true; MP.myChoice = i;
     $("mpChoices").querySelectorAll(".choice").forEach((b) => b.disabled = true);
     btn.classList.add("chosen");
     const st = $("mpQStatus"); if (st) st.textContent = "Du svarade – väntar på facit…";
-    mpSend("answer", { id: MP.me, index: MP.qNow.index, choiceIndex: i, ms });
+    const ms = Math.max(0, Math.round(performance.now() - (MP.qStart || performance.now())));
+    try { await MP.sb.from("answers").upsert({ game_pin: MP.pin, question_index: MP.game.current_index, player_id: MP.me, choice_index: i, ms }, { onConflict: "game_pin,question_index,player_id", ignoreDuplicates: true }); } catch (e) {}
   }
-  function mpOnReveal(p) {
+  function mpRenderReveal(g) {
     mpClearCount();
-    MP.phase = "reveal";
+    const q = g.questions && g.questions[g.current_index] ? g.questions[g.current_index] : null;
+    const quote = q && QUOTES[q.qIdx] ? QUOTES[q.qIdx][0] : "";
+    const correct = q && QUOTES[q.qIdx] ? QUOTES[q.qIdx][1] : null;
+    const gain = g.gains ? (g.gains[MP.me] || 0) : null;
+    const gainTxt = (MP.answered && gain !== null) ? ' <span class="mp-gain' + (gain > 0 ? " pos" : "") + '">+' + gain + ' p</span>' : "";
+    mpBody().innerHTML =
+      '<p class="mp-status">Fråga ' + (g.current_index + 1) + ' av ' + g.total + '</p>' +
+      '<div class="card"><div class="mp-q">' + mpEsc(quote) + '</div><div class="choices answered" id="mpChoices"></div>' +
+      '<p class="mp-status" id="mpQStatus">Rätt svar: <b>' + mpEsc(correct || "") + '</b>' + gainTxt + '</p></div><div id="mpBoard"></div>';
     const box = $("mpChoices");
-    if (box && MP.qNow) {
-      const correct = QUOTES[MP.qNow.qIdx] ? QUOTES[MP.qNow.qIdx][1] : null;
-      box.classList.add("answered");
-      box.querySelectorAll(".choice").forEach((b) => {
-        b.disabled = true;
-        if (b.textContent === correct) b.classList.add("correct");
-        else if (b.classList.contains("chosen")) b.classList.add("wrong");
-      });
-      const gain = p.gains ? (p.gains[MP.me] || 0) : null;
-      const gainTxt = (MP.answered && gain !== null) ? ' <span class="mp-gain' + (gain > 0 ? " pos" : "") + '">+' + gain + ' p</span>' : "";
-      const st = $("mpQStatus"); if (st) st.innerHTML = "Rätt svar: <b>" + mpEsc(correct) + "</b>" + gainTxt;
-    }
-    mpShowBoard(p.board);
+    (q ? q.options : []).forEach((t, i) => {
+      const b = document.createElement("button"); b.className = "choice"; b.disabled = true; b.textContent = t;
+      if (t === correct) b.classList.add("correct");
+      else if (i === MP.myChoice) b.classList.add("wrong");
+      box.appendChild(b);
+    });
+    mpShowBoard(g.board || []);
     mpHostControls();
   }
   function mpShowBoard(board) {
@@ -1713,17 +1738,17 @@
       board.slice(0, 8).map((p, i) => '<div class="mp-player"><span class="av">' + (i + 1) + '</span><span class="nm">' + mpEsc(p.name) + '</span><span class="pts">' + p.score + '</span></div>').join("") +
       '</div></div>';
   }
-  function mpOnFinished(p) {
+  function mpRenderFinished(g) {
     mpClearCount();
-    MP.phase = "final";
     const medal = ["🥇", "🥈", "🥉"];
+    const board = g.board || [];
     mpBody().innerHTML =
       '<p class="mp-status">Slutresultat</p><div class="mp-podium">' +
-      p.board.map((x, i) => '<div class="row ' + (i === 0 ? "p1" : "") + '"><span class="rk">' + (medal[i] || (i + 1)) + '</span><span class="nm">' + mpEsc(x.name) + '</span><span class="pts">' + x.score + '</span></div>').join("") +
+      board.map((x, i) => '<div class="row ' + (i === 0 ? "p1" : "") + '"><span class="rk">' + (medal[i] || (i + 1)) + '</span><span class="nm">' + mpEsc(x.name) + '</span><span class="pts">' + x.score + '</span></div>').join("") +
       '</div>' +
       (MP.role === "host" ? '<button class="action btn-next" id="mpAgain">Spela igen →</button>' : '<p class="mp-status">Värden kan starta en ny match.</p>') +
       '<button class="action btn-ghost" id="mpToMenu">Till menyn</button>';
-    if (MP.role === "host") $("mpAgain").onclick = () => mpRenderLobby();
+    if (MP.role === "host") $("mpAgain").onclick = hostPlayAgain;
     $("mpToMenu").onclick = mpBackToMenu;
   }
 
