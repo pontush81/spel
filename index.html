@@ -1368,6 +1368,34 @@
     return MP.libLoading;
   }
 
+  function mpSend(event, payload) { if (MP.ch) MP.ch.send({ type: "broadcast", event, payload }); }
+  // Håll skärmen vaken under spel (annars pausar mobilen timers → spelet fryser)
+  async function mpAcquireWake() {
+    try { if ("wakeLock" in navigator && !MP.wakeLock) {
+      MP.wakeLock = await navigator.wakeLock.request("screen");
+      MP.wakeLock.addEventListener("release", () => { MP.wakeLock = null; });
+    } } catch (e) {}
+  }
+  function mpReleaseWake() { try { if (MP.wakeLock) { MP.wakeLock.release(); MP.wakeLock = null; } } catch (e) {} }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && MP.ch && !$("mp").classList.contains("hidden")) mpAcquireWake();
+  });
+  // Värdens räddnings-/skip-knapp: tvinga spelet vidare om det skulle hänga sig
+  function mpHostControls() {
+    if (MP.role !== "host") return;
+    const b = document.createElement("button");
+    b.className = "action btn-ghost"; b.textContent = "⏭ Nästa (om det hänger)";
+    b.onclick = hostForceNext;
+    mpBody().appendChild(b);
+  }
+  function hostForceNext() {
+    if (MP.role !== "host") return;
+    if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
+    if (MP.phase === "question") hostEndQuestion();
+    else if (MP.phase === "countdown") hostSendQuestion(MP.curIdx);
+    else hostNextQuestion();
+  }
+
   function openMultiplayer() {
     root.removeAttribute("data-mode");
     $("menu").classList.add("hidden");
@@ -1381,7 +1409,8 @@
     try { if (MP.ch) MP.ch.unsubscribe(); } catch (e) {}
     if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
     if (MP.countTimer) { clearInterval(MP.countTimer); MP.countTimer = null; }
-    MP.ch = null; MP.role = null; MP.pin = null;
+    mpReleaseWake();
+    MP.ch = null; MP.role = null; MP.pin = null; MP.joined = false;
     MP.questions = []; MP.curIdx = -1; MP.qNow = null;
   }
   function mpBackToMenu() {
@@ -1460,6 +1489,7 @@
     catch (e) { mpBody().innerHTML = '<p class="mp-status">Kunde inte ladda realtidsbiblioteket. Kolla nätet och försök igen.</p>'; return; }
     MP.role = role; MP.pin = pin; MP.me = mpPlayerId();
     MP.sb = MP.sb || window.supabase.createClient(MP.URL, MP.KEY);
+    MP.joined = false;
     MP.ch = MP.sb.channel("spel:game:" + pin, { config: { broadcast: { self: true }, presence: { key: MP.me } } });
     MP.ch.on("broadcast", { event: "countdown" }, (m) => mpOnCountdown(m.payload));
     MP.ch.on("broadcast", { event: "question" }, (m) => mpOnQuestion(m.payload));
@@ -1469,12 +1499,15 @@
     MP.ch.on("presence", { event: "sync" }, () => { if (MP.phase === "lobby") mpRenderRoster(); });
     MP.ch.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
-        await MP.ch.track({ id: MP.me, name: MP.nick, isHost: role === "host" });
-        mpRenderLobby();
+        try { await MP.ch.track({ id: MP.me, name: MP.nick, isHost: role === "host" }); } catch (e) {}
+        mpAcquireWake();
+        if (!MP.joined) { MP.joined = true; mpRenderLobby(); } // första anslutningen → lobby; reconnect → behåll spelet
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        mpBody().innerHTML = '<p class="mp-status">Anslutningen misslyckades. Gå tillbaka och försök igen.</p>';
+        if (MP.timer) { clearTimeout(MP.timer); MP.timer = null; }
+        if (MP.countTimer) { clearInterval(MP.countTimer); MP.countTimer = null; }
         try { if (MP.ch) MP.ch.unsubscribe(); } catch (e) {}
         MP.ch = null;
+        mpBody().innerHTML = '<p class="mp-status">Anslutningen tappades. Gå tillbaka till menyn och starta om spelet.</p>';
       }
     });
   }
@@ -1551,16 +1584,14 @@
     MP.curIdx++;
     if (MP.curIdx >= MP.questions.length) { hostFinish(); return; }
     // delad 3-2-1-nedräkning, sen skickas frågan så alla skärmar flippar samtidigt
-    MP.ch.send({ type: "broadcast", event: "countdown", payload: { index: MP.curIdx, total: MP.questions.length } });
+    mpSend("countdown", { index: MP.curIdx, total: MP.questions.length });
     if (MP.timer) clearTimeout(MP.timer);
     MP.timer = setTimeout(() => hostSendQuestion(MP.curIdx), 3000);
   }
   function hostSendQuestion(idx) {
     MP.answersQ = new Map();
     const q = MP.questions[idx];
-    MP.ch.send({ type: "broadcast", event: "question", payload: {
-      index: idx, total: MP.questions.length, timerSec: MP.TIMER, qIdx: q.qIdx, options: q.options
-    } });
+    mpSend("question", { index: idx, total: MP.questions.length, timerSec: MP.TIMER, qIdx: q.qIdx, options: q.options });
     if (MP.timer) clearTimeout(MP.timer);
     MP.timer = setTimeout(hostEndQuestion, MP.TIMER * 1000 + 700);
   }
@@ -1586,11 +1617,11 @@
       gains[id] = pts;
       if (pts) MP.scores.set(id, (MP.scores.get(id) || 0) + pts);
     }
-    MP.ch.send({ type: "broadcast", event: "reveal", payload: { index: MP.curIdx, board: hostBoard(), gains } });
+    mpSend("reveal", { index: MP.curIdx, board: hostBoard(), gains });
     MP.timer = setTimeout(hostNextQuestion, MP.REVEAL_MS);
   }
   function hostFinish() {
-    MP.ch.send({ type: "broadcast", event: "finished", payload: { board: hostBoard() } });
+    mpSend("finished", { board: hostBoard() });
   }
   function hostBoard() {
     const names = {};
@@ -1622,6 +1653,7 @@
       if (n <= 0) { mpClearCount(); return; }
       paint();
     }, 1000);
+    mpHostControls();
   }
   function mpOnQuestion(p) {
     mpClearCount();
@@ -1644,6 +1676,7 @@
     bar.style.transition = "none"; bar.style.width = "100%";
     requestAnimationFrame(() => { bar.style.transition = "width " + p.timerSec + "s linear"; bar.style.width = "0%"; });
     MP.qStart = performance.now();
+    mpHostControls();
   }
   function mpAnswer(i, btn) {
     if (MP.answered) return;
@@ -1652,7 +1685,7 @@
     $("mpChoices").querySelectorAll(".choice").forEach((b) => b.disabled = true);
     btn.classList.add("chosen");
     const st = $("mpQStatus"); if (st) st.textContent = "Du svarade – väntar på facit…";
-    MP.ch.send({ type: "broadcast", event: "answer", payload: { id: MP.me, index: MP.qNow.index, choiceIndex: i, ms } });
+    mpSend("answer", { id: MP.me, index: MP.qNow.index, choiceIndex: i, ms });
   }
   function mpOnReveal(p) {
     mpClearCount();
@@ -1671,6 +1704,7 @@
       const st = $("mpQStatus"); if (st) st.innerHTML = "Rätt svar: <b>" + mpEsc(correct) + "</b>" + gainTxt;
     }
     mpShowBoard(p.board);
+    mpHostControls();
   }
   function mpShowBoard(board) {
     let el = $("mpBoard");
